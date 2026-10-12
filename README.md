@@ -1,3 +1,16 @@
+## Catalog App support for source Runtime — 1.19.5
+
+This release resolves public npm Kit/native **0.19.2** in the frozen lockfile,
+with SDK **0.21.0** and App Tools **0.12.0**. Launch the installed Catalog App
+through Nimi Home in either the supported production environment or the macOS
+source-development environment. The App always loads its own packaged native
+carrier. Source Runtime peer identity and installed-App/session admission remain
+verified; no workspace carrier replacement or trust-check bypass is used.
+
+Catalog AI acceptance for this new artifact is pending publication and admission;
+earlier development and installed-artifact results below retain their stated
+versions and limitations.
+
 # SillyTavern on Nimi
 
 This adaptation keeps SillyTavern's JavaScript/jQuery UI, Express data services,
