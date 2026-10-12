@@ -105,3 +105,9 @@ step even when streaming display is enabled; plain text can appear as generated.
 ## License
 
 AGPL-3.0. Original project attribution and LICENSE are retained.
+
+## Published Nimi dependency update — 2026-10-12
+
+[1.19.4](https://github.com/nimiplatform/SillyTavern/releases/tag/v1.19.4) is published through the managed immutable-release workflow and [admitted to the Registry](https://github.com/nimiplatform/nimi-app-registry/pull/68). The App consumes released SDK 0.21.0, Kit/native 0.19.0, App Tools 0.12.0 and Nimi Coding 0.6.5 through public npm locks, with no local Nimi dependency override.
+
+Chat persistence and new speech synthesis with a saved WAV result passed. These business checks used the actual Desktop-supervised development Host. Catalog AI acceptance remains NOT-VERIFIED; the user authorized publication and admission with that limitation recorded. This release declares macOS arm64.
