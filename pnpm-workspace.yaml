@@ -2,5 +2,7 @@ packages:
   - .
   - tests
 overrides:
-  "vectra>openai": "^4.17.0"
   "node-fetch>whatwg-url": "^14.0.0"
+  "vectra>openai": "^4.17.0"
+patchedDependencies:
+  '@electron/osx-sign@2.7.1': patches/@electron__osx-sign@2.7.1.patch

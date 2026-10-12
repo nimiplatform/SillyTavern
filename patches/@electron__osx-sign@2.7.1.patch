@@ -1,0 +1,31 @@
+diff --git a/dist/util.js b/dist/util.js
+index 7674259258cb14f846c3a2ab75a0e22dbe1b79ce..9e524ce2ace22f50ed1352628654d5b56c7a35aa 100644
+--- a/dist/util.js
++++ b/dist/util.js
+@@ -67,11 +67,23 @@ export async function detectElectronPlatform(opts) {
+ /**
+  * This function returns a promise resolving the file path if file binary.
+  */
++// Bundle trees contain thousands of resources. Bound binary probes across the
++// recursive walk so macOS runner file limits cannot interrupt signing discovery.
++let binaryReads = 0;
++const binaryReadWaiters = [];
+ async function getFilePathIfBinary(filePath) {
+-    if (await isBinaryFile(filePath)) {
+-        return filePath;
++    if (binaryReads >= 32) {
++        await new Promise(resolve => binaryReadWaiters.push(resolve));
++    } else {
++        binaryReads++;
++    }
++    try {
++        return await isBinaryFile(filePath) ? filePath : null;
++    } finally {
++        const next = binaryReadWaiters.shift();
++        if (next) next();
++        else binaryReads--;
+     }
+-    return null;
+ }
+ /**
+  * This function returns a promise validating opts.app, the application to be signed or flattened.

@@ -120,6 +120,7 @@ try {
   }
   await copyFile(path.join(appRoot, 'dist-electron', 'main.js'), path.join(productionSourceRoot, 'dist-electron', 'main.js'));
   await copyFile(path.join(appRoot, 'dist-electron', 'preload.cjs'), path.join(productionSourceRoot, 'dist-electron', 'preload.cjs'));
+  await cp(path.join(appRoot, 'patches'), path.join(productionSourceRoot, 'patches'), { recursive: true });
   await installProductionDependencies(productionSourceRoot);
 
   const productionManifestPath = path.join(productionSourceRoot, 'package.json');
@@ -127,6 +128,7 @@ try {
   delete productionManifest.devDependencies;
   await writeFile(productionManifestPath, `${JSON.stringify(productionManifest, null, 2)}\n`);
   await rm(path.join(productionSourceRoot, 'pnpm-lock.yaml'));
+  await rm(path.join(productionSourceRoot, 'patches'), { recursive: true });
   await rm(path.join(productionSourceRoot, 'pnpm-workspace.yaml'), { force: true });
 
   const installedNativePackage = path.join(productionSourceRoot, 'node_modules', ...NATIVE_BINDING_PACKAGE.split('/'));

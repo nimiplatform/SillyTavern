@@ -8,6 +8,11 @@ overrides:
   vectra>openai: ^4.17.0
   node-fetch>whatwg-url: ^14.0.0
 
+patchedDependencies:
+  '@electron/osx-sign@2.7.1':
+    hash: df8ee999a1173250799051b7435dc4f932278259b2ffe8addd157e8d3f42783e
+    path: patches/@electron__osx-sign@2.7.1.patch
+
 importers:
 
   .:
@@ -6086,7 +6091,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@electron/osx-sign@2.7.1':
+  '@electron/osx-sign@2.7.1(patch_hash=df8ee999a1173250799051b7435dc4f932278259b2ffe8addd157e8d3f42783e)':
     dependencies:
       debug: 4.4.3
       isbinaryfile: 4.0.10
@@ -6101,7 +6106,7 @@ snapshots:
       '@electron/asar': 4.3.1
       '@electron/get': 5.1.0
       '@electron/notarize': 3.1.1
-      '@electron/osx-sign': 2.7.1
+      '@electron/osx-sign': 2.7.1(patch_hash=df8ee999a1173250799051b7435dc4f932278259b2ffe8addd157e8d3f42783e)
       '@electron/universal': 3.0.6
       '@electron/windows-sign': 2.1.0
       '@malept/cross-spawn-promise': 2.0.0
