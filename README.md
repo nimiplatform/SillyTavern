@@ -4,7 +4,7 @@ This adaptation keeps SillyTavern's JavaScript/jQuery UI, Express data services,
 character cards, Persona, PromptManager, worlds, chats and AGPL-3.0 license.
 Upstream: https://github.com/SillyTavern/SillyTavern at
 `06bde939fb1e9c4c8d8641d810f0a916b5bce127` (1.19.0).
-The Nimi adaptation's current package version is 1.19.2.
+The Nimi adaptation's current package version is 1.19.3.
 Nimi supplies AI execution and configuration through the public Local App SDK
 and the Desktop-supervised Electron Host. SillyTavern owns its characters,
 conversation turns and business tool handlers.

@@ -48,7 +48,7 @@ async function finishJob(id, response, operation, previousError) {
 export async function runNimiMediaJob(spec, { signal, onSubmitted, inputAssets = [] } = {}) {
     const operation = beginNimiOperation(signal);
     const id = crypto.randomUUID();
-    const clientSubmissionId = crypto.randomUUID();
+    const clientSubmissionId = spec.type === 'music-generate' ? crypto.randomUUID() : undefined;
     let job;
     try {
         const selection = await requireNimiCapability(contracts[spec.type]);
@@ -65,7 +65,7 @@ export async function runNimiMediaJob(spec, { signal, onSubmitted, inputAssets =
         operation.guard();
         await saveRecord(id, { status: 'submitting', clientSubmissionId, scenarioType: spec.type, resourceIdentity: getNimiResourceIdentity(selection), input }, inputs, operation.signal);
         operation.guard();
-        const submitted = await getNimiClient().ai.scenarioJobs.submit(spec, { clientSubmissionId });
+        const submitted = await getNimiClient().ai.scenarioJobs.submit(spec, clientSubmissionId ? { clientSubmissionId } : undefined);
         job = submitted.job;
         if (operation.signal.aborted) {
             await getNimiClient().ai.scenarioJobs.cancel(job.jobId, 'sillytavern-canceled-during-submission');
