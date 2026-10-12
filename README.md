@@ -1,3 +1,7 @@
+## Windows candidate 1.19.6 — 2026-10-13
+
+Unreleased adaptation with SDK 0.21.0, Kit/native 0.19.3, App Tools 0.12.2 and Nimi Coding 0.6.5. The 439-test App suite passes. Windows packaging has an explicit target, portable CSS invocation and required author metadata. The supervised App against Nimi 0.2.2 generated a real two-sentence Chinese librarian reply through qwen3.8-flash; reload preserved the chat. Windows speech, images, retrieval and external tools remain NOT-VERIFIED. New public admission needs the publisher's safety declaration; candidate installation remains NOT-VERIFIED. Earlier macOS evidence keeps its stated release and scope.
+
 ## Catalog App support for source Runtime — 1.19.5
 
 This release resolves public npm Kit/native **0.19.2** in the frozen lockfile,

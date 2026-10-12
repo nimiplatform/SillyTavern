@@ -1,11 +1,11 @@
 app_id: org.nimiplatform.sillytavern
 display_name: SillyTavern
-version: 1.19.5
+version: 1.19.6
 profile: standalone
 npm_package_name: sillytavern
 cargo_package_name: sillytavern-shell
 tauri_identifier: ai.nimi.apps.org.nimiplatform.sillytavern
-package_author: null
+package_author: SillyTavern contributors
 submission_role: developer-submitted-input
 capability_contract_refs:
   - text.generate
@@ -22,7 +22,7 @@ storage_policy:
       purpose: Character cards, Persona, chats, world books, settings, media, backups and retrieval indexes. Shared between development and local installation; independent of Nimi accounts.
       expected_size_band: User-controlled; megabytes for text, potentially multiple gigabytes for media and indexes.
     - path_pattern: "%APPDATA%/SillyTavern-Nimi"
-      purpose: Windows business data root; implementation declared, Windows acceptance NOT-VERIFIED.
+      purpose: Character cards, Persona, chats, world books, settings, media, backups and retrieval indexes on Windows; independent of Nimi accounts.
       expected_size_band: User-controlled; megabytes to multiple gigabytes.
 support_manifest:
   diagnostics_bundle_fields:

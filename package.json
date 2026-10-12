@@ -27,6 +27,8 @@
         "@jimp/wasm-png": "^1.6.0",
         "@jimp/wasm-webp": "^1.6.0",
         "@mozilla/readability": "^0.6.0",
+        "@nimiplatform/kit": "^0.19.0",
+        "@nimiplatform/sdk": "^0.21.0",
         "@popperjs/core": "^2.11.8",
         "@zeldafan0225/ai_horde": "^5.2.0",
         "agent-base": "^7.1.3",
@@ -79,6 +81,8 @@
         "png-chunks-extract": "^1.0.0",
         "proxy-agent": "^6.5.0",
         "rate-limiter-flexible": "^5.0.5",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
         "response-time": "^2.3.4",
         "sanitize-filename": "^1.6.3",
         "seedrandom": "^3.0.5",
@@ -95,11 +99,7 @@
         "ws": "^8.18.3",
         "yaml": "^2.8.3",
         "yargs": "^17.7.1",
-        "yauzl": "^3.2.1",
-        "react": "^19.2.8",
-        "react-dom": "^19.2.8",
-        "@nimiplatform/sdk": "^0.21.0",
-        "@nimiplatform/kit": "^0.19.0"
+        "yauzl": "^3.2.1"
     },
     "engines": {
         "node": ">=24"
@@ -113,13 +113,14 @@
         }
     },
     "name": "sillytavern",
+    "author": "SillyTavern contributors",
     "type": "module",
     "license": "AGPL-3.0",
     "repository": {
         "type": "git",
         "url": "https://github.com/SillyTavern/SillyTavern.git"
     },
-    "version": "1.19.5",
+    "version": "1.19.6",
     "scripts": {
         "init": "node src/server-init.js",
         "start": "node server.js",
@@ -156,6 +157,10 @@
     "main": "dist-electron/main.js",
     "devDependencies": {
         "@chevrotain/types": "^11.2.0",
+        "@electron/packager": "^20.3.0",
+        "@nimiplatform/app-tools": "^0.12.2",
+        "@nimiplatform/nimi-coding": "0.6.5",
+        "@tailwindcss/cli": "^4.3.3",
         "@types/archiver": "^6.0.3",
         "@types/bytes": "^3.1.5",
         "@types/command-exists": "^1.2.3",
@@ -182,18 +187,14 @@
         "@types/write-file-atomic": "^4.0.3",
         "@types/yargs": "^17.0.33",
         "@types/yauzl": "^2.10.3",
+        "electron": "^44.5.1",
+        "esbuild": "^0.28.2",
         "eslint": "^8.57.1",
         "eslint-plugin-jest": "^27.9.0",
         "eslint-plugin-jsdoc": "^48.10.0",
         "eslint-plugin-playwright": "^2.3.0",
-        "typescript": "^5.9.3",
-        "electron": "^44.5.1",
-        "esbuild": "^0.28.2",
-        "@tailwindcss/cli": "^4.3.3",
         "tailwindcss": "^4.3.3",
-        "@electron/packager": "^20.3.0",
-        "@nimiplatform/app-tools": "^0.12.0",
-        "@nimiplatform/nimi-coding": "0.6.5"
+        "typescript": "^5.9.3"
     },
     "packageManager": "pnpm@10.34.5",
     "private": true

@@ -1,8 +1,8 @@
 app_id: org.nimiplatform.sillytavern
 display_name: SillyTavern
-version: 1.19.5
+version: 1.19.6
 npm_package_name: sillytavern
 cargo_package_name: sillytavern-shell
 tauri_identifier: ai.nimi.apps.org.nimiplatform.sillytavern
-package_author: null
+package_author: SillyTavern contributors
 identity_role: scaffold-generated-authoring-input

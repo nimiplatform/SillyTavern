@@ -4,6 +4,11 @@ test_command: pnpm run test:app
 build_command: pnpm run build:electron:production
 output_path: dist-electron-package
 targets:
+  windows-x86_64:
+    os: windows
+    arch: x86_64
+    payload_path: dist-electron-package/sillytavern-shell-win32-x64
+    runtime_entry: payload/sillytavern-shell.exe
   macos-aarch64:
     os: macos
     arch: arm64
