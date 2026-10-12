@@ -1693,7 +1693,11 @@ export async function loadReasoningTemplates(data) {
 /**
  * Initializes reasoning settings and event handlers.
  */
+let reasoningInitialized = false;
+
 export function initReasoning() {
+    if (reasoningInitialized) return;
+    reasoningInitialized = true;
     loadReasoningSettings();
     setReasoningEventHandlers();
     registerReasoningSlashCommands();

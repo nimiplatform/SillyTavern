@@ -1,6 +1,7 @@
 import path from 'node:path';
 import webpack from 'webpack';
 import getPublicLibConfig from '../../webpack.config.js';
+import { serverDirectory } from '../server-directory.js';
 
 export default function getWebpackServeMiddleware() {
     /**
@@ -11,6 +12,14 @@ export default function getWebpackServeMiddleware() {
      * @type {import('express').RequestHandler}
      */
     function devMiddleware(req, res, next) {
+        // Installed Apps ship the compiled library. Their Electron utility
+        // process must not evaluate the development Webpack cache configuration.
+        if (process.env.ST_NIMI_PACKAGED === '1') {
+            if (req.method === 'GET' && req.path === '/lib.js') {
+                return res.sendFile('lib.bundle.js', { root: path.join(serverDirectory, 'public') });
+            }
+            return next();
+        }
         const publicLibConfig = getPublicLibConfig();
         const outputPath = publicLibConfig.output?.path;
         const outputFile = publicLibConfig.output?.filename;
@@ -31,6 +40,7 @@ export default function getWebpackServeMiddleware() {
      * @returns {Promise<void>}
      */
     devMiddleware.runWebpackCompiler = ({ forceDist = false, pruneCache = false } = {}) => {
+        if (process.env.ST_NIMI_PACKAGED === '1') return Promise.resolve();
         console.log();
         console.log('Compiling frontend libraries...');
 

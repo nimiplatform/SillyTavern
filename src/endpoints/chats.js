@@ -10,6 +10,7 @@ import { sync as writeFileAtomicSync } from 'write-file-atomic';
 import _ from 'lodash';
 
 import validateAvatarUrlMiddleware from '../middleware/validateFileName.js';
+import { updateStoredToolEffects } from '../nimi-tool-effects.js';
 import {
     getConfigValue,
     humanizedDateTime,
@@ -506,6 +507,12 @@ export async function getChatInfo(pathToFile, additionalData = {}, withMetadata 
 }
 
 export const router = express.Router();
+router.post('/tool-effects', (request, response) => {
+    try {
+        updateStoredToolEffects(request.user.directories, request.body.target, request.body.plan);
+        response.json({ saved: true });
+    } catch (error) { response.status(400).json({ error: error.message }); }
+});
 
 // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error
 class IntegrityMismatchError extends Error {

@@ -1,0 +1,43 @@
+app_id: org.nimiplatform.sillytavern
+display_name: SillyTavern
+version: 1.19.2
+profile: standalone
+npm_package_name: sillytavern
+cargo_package_name: sillytavern-shell
+tauri_identifier: ai.nimi.apps.org.nimiplatform.sillytavern
+package_author: null
+submission_role: developer-submitted-input
+capability_contract_refs:
+  - text.generate
+  - text.embed
+  - image.generate
+  - audio.synthesize
+  - audio.transcribe
+  - text.decide
+required_standardized_feature_refs: []
+storage_policy:
+  kind: app-owned-os-storage
+  os_storage_disclosure:
+    - path_pattern: ~/Library/Application Support/SillyTavern-Nimi
+      purpose: Character cards, Persona, chats, world books, settings, media, backups and retrieval indexes. Shared between development and local installation; independent of Nimi accounts.
+      expected_size_band: User-controlled; megabytes for text, potentially multiple gigabytes for media and indexes.
+    - path_pattern: "%APPDATA%/SillyTavern-Nimi"
+      purpose: Windows business data root; implementation declared, Windows acceptance NOT-VERIFIED.
+      expected_size_band: User-controlled; megabytes to multiple gigabytes.
+support_manifest:
+  diagnostics_bundle_fields:
+    - app_version
+    - runtime_status
+  redaction_rules:
+    - credentials
+  user_visible_issue_categories:
+    - startup
+    - runtime
+  escalation_path: README.md#support
+  kill_switch_visibility: visible
+  recovery_instructions: Restart the App from Nimi. If the problem persists, reinstall the current admitted release.
+review_inputs:
+  manifest: nimi.app.yaml
+  build_profile: .nimi/config/build-profile.yaml
+  scaffold_boundary: .nimi/contracts/scaffold-boundary.yaml
+admission_truth: platform-owned-after-review

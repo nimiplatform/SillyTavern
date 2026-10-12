@@ -11,6 +11,11 @@ import { enumTypes, SlashCommandEnumValue } from './slash-commands/SlashCommandE
 import { SlashCommandParser } from './slash-commands/SlashCommandParser.js';
 import { slashCommandReturnHelper } from './slash-commands/SlashCommandReturnHelper.js';
 import { isTrueBoolean } from './utils.js';
+import { selected_group } from './group-chats.js';
+import { characters, this_chid, getCurrentChatId, getRequestHeaders } from '../script.js';
+import { createToolEffects, assertToolEffectMayRun, effectInvocation } from './nimi/tool-effects.js';
+import { assertNimiScope } from './nimi/platform.bundle.js';
+import { requireNimiToolTerminal } from './nimi/text.js';
 
 /**
  * @typedef {object} ToolInvocation
@@ -98,15 +103,6 @@ function tryParse(str) {
     } catch {
         return str;
     }
-}
-
-/**
- * Stringifies an object if it is not already a string.
- * @param {any} obj The object to stringify
- * @returns {string} A JSON string representation of the object.
- */
-function stringify(obj) {
-    return typeof obj === 'string' ? obj : JSON.stringify(obj);
 }
 
 /**
@@ -206,8 +202,8 @@ class ToolDefinition {
      * @param {object} parameters The parameters to pass to the tool.
      * @returns {Promise<any>} The result of the tool's action function.
      */
-    async invoke(parameters) {
-        return await this.#action(parameters);
+    async invoke(parameters, context) {
+        return await this.#action(parameters, context);
     }
 
     /**
@@ -322,7 +318,7 @@ export class ToolManager {
      * @param {object} parameters Function parameters. For example, if the tool requires a "name" parameter, you would pass {name: "value"}.
      * @returns {Promise<string|Error>} The result of the tool's action function. If an error occurs, null is returned. Non-string results are JSON-stringified.
      */
-    static async invokeFunctionTool(name, parameters) {
+    static async invokeFunctionTool(name, parameters, context) {
         try {
             if (!this.#tools.has(name)) {
                 throw new Error(`No tool with the name "${name}" has been registered.`);
@@ -330,7 +326,7 @@ export class ToolManager {
 
             const invokeParameters = this.#parseParameters(parameters);
             const tool = this.#tools.get(name);
-            const result = await tool.invoke(invokeParameters);
+            const result = await tool.invoke(invokeParameters, context);
             return typeof result === 'string' ? result : JSON.stringify(result);
         } catch (error) {
             console.error(`[ToolManager] An error occurred while invoking the tool "${name}":`, error);
@@ -618,6 +614,7 @@ export class ToolManager {
         if (main_api !== 'openai' || !settings.function_calling) {
             return false;
         }
+        if (settings.chat_completion_source === chat_completion_sources.NIMI) return true;
 
         // GPT-6 Astra supports tool calling only through the Responses API.
         if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)
@@ -705,6 +702,9 @@ export class ToolManager {
      * @returns {any[]} Tool calls from the response data
      */
     static #getToolCallsFromData(data) {
+        // The Nimi adapter publishes complete canonical calls as a flat list
+        // only after the model's successful terminal event.
+        if (Array.isArray(data) && data.every(call => typeof call?.id === 'string' && typeof call?.function?.name === 'string')) return data;
         const getRandomId = () => Math.random().toString(36).substring(2);
         const isClaudeToolCall = c => Array.isArray(c) ? c.filter(x => x).every(isClaudeToolCall) : c?.input && c?.name && c?.id;
         const isGoogleToolCall = c => Array.isArray(c) ? c.filter(x => x).every(isGoogleToolCall) : c?.name && c?.args;
@@ -783,75 +783,75 @@ export class ToolManager {
      * @param {any} data Reply data
      * @returns {Promise<ToolInvocationResult>} Successful tool invocations
      */
-    static async invokeFunctionTools(data, { reasoningText = null } = {}) {
-        /** @type {ToolInvocationResult} */
-        const result = {
-            invocations: [],
-            errors: [],
-            stealthCalls: [],
-        };
-        const toolCalls = ToolManager.#getToolCallsFromData(data);
-
-        if (!Array.isArray(toolCalls)) {
-            return result;
+    static async invokeFunctionTools(data, { reasoningText = null, nimiEnvelope = null } = {}) {
+        const result = { invocations: [], errors: [], stealthCalls: [], nimiEnvelope };
+        const calls = ToolManager.#getToolCallsFromData(data);
+        if (!Array.isArray(calls) || !calls.length) return result;
+        const receipt = requireNimiToolTerminal(nimiEnvelope);
+        assertNimiScope(nimiEnvelope.scope);
+        delete receipt.scope;
+        const plan = createToolEffects(receipt, calls);
+        const target = { chatId: getCurrentChatId(), group: Boolean(selected_group), avatar: characters[this_chid]?.avatar };
+        let message = chat.at(-1);
+        if (message?.extra?.nimi?.id !== receipt.id) {
+            message = { name: systemUserName, force_avatar: system_avatar, is_system: true, is_user: false,
+                mes: 'Tool actions', extra: { isSmallSys: true, nimi: receipt, api: getGeneratingApi(), model: getGeneratingModel() } };
+            chat.push(message); addOneMessage(message);
         }
-
-        for (const toolCall of toolCalls) {
-            if (!toolCall || !toolCall.function || typeof toolCall.function !== 'object') {
-                continue;
+        const histories = chat.flatMap(row => row.extra?.nimiEffects ? [row.extra.nimiEffects] : []);
+        message.extra.nimiEffects = plan;
+        async function save(initial = false) {
+            message.extra.tool_invocations = plan.effects.map(effect => effectInvocation(effect, ToolManager.getDisplayName(effect.name)));
+            if (initial) {
+                assertNimiScope(nimiEnvelope.scope);
+                await saveChatConditional();
             }
-
-            console.log('[ToolManager] Function tool call:', toolCall);
-            const id = toolCall.id;
-            const parameters = toolCall.function.arguments;
-            const name = toolCall.function.name;
-            const displayName = ToolManager.getDisplayName(name);
-            const isStealth = ToolManager.isStealthTool(name);
-            const message = await ToolManager.formatToolCallMessage(name, parameters);
-            const toast = message && toastr.info(message, 'Tool Calling', { timeOut: 0 });
-            const toolResult = await ToolManager.invokeFunctionTool(name, parameters);
-            toastr.clear(toast);
-            console.log('[ToolManager] Function tool result:', result);
-
-            // Handle tool errors — still create an invocation so the LLM sees the failure
-            if (toolResult instanceof Error) {
-                result.errors.push(toolResult);
-                if (isStealth) {
-                    result.stealthCalls.push(name);
-                } else {
-                    result.invocations.push({
-                        id,
-                        displayName,
-                        name,
-                        parameters: stringify(parameters),
-                        result: toolResult.toString(),
-                        error: true,
-                        signature: toolCall.signature || null,
-                        reasoning: reasoningText || null,
-                    });
-                }
-                continue;
-            }
-
-            // Don't save stealth tool invocations
-            if (isStealth) {
-                result.stealthCalls.push(name);
-                continue;
-            }
-
-            const invocation = {
-                id,
-                displayName,
-                name,
-                parameters: stringify(parameters),
-                result: toolResult,
-                error: false,
-                signature: toolCall.signature || null,
-                reasoning: reasoningText || null,
-            };
-            result.invocations.push(invocation);
+            const response = await fetch('/api/chats/tool-effects', { method: 'POST', headers: getRequestHeaders(), body: JSON.stringify({ target, plan }) });
+            if (!response.ok) throw new Error(`The original tool outcome could not be saved: ${(await response.json()).error}`);
         }
-
+        // Durable pending receipt precedes every potentially effectful callback.
+        await save(true);
+        for (const effect of plan.effects) {
+            let toast;
+            let started = false;
+            try {
+                assertNimiScope(nimiEnvelope.scope);
+                assertToolEffectMayRun(effect, [...histories, { effects: plan.effects.slice(0, plan.effects.indexOf(effect)) }]);
+                effect.status = 'running'; await save();
+                assertNimiScope(nimiEnvelope.scope);
+                const formatted = await ToolManager.formatToolCallMessage(effect.name, effect.parameters);
+                assertNimiScope(nimiEnvelope.scope);
+                toast = formatted && toastr.info(formatted, 'Tool Calling', { timeOut: 0 });
+                started = true;
+                const value = await ToolManager.invokeFunctionTool(effect.name, effect.parameters, {
+                    onIssued: async call => { effect.integrationCall = call; await save(); },
+                });
+                if (value instanceof Error) {
+                    // Throwing after a callback started cannot prove that its
+                    // effect did not happen. Only an explicit confirmed failure
+                    // may be represented as failed rather than unconfirmed.
+                    if (value.integrationResult !== undefined) {
+                        // Retain an observed external result on the original
+                        // receipt even when this App turn was stopped. The scope
+                        // guard below still prevents any later business step.
+                        effect.status = 'completed'; effect.result = JSON.stringify(value.integrationResult);
+                    } else {
+                        effect.status = value.confirmedFailure === true && !value.unconfirmed ? 'failed' : 'unconfirmed'; effect.error = value.message;
+                    }
+                    if (value.call) effect.integrationCall = value.call;
+                    result.errors.push(value);
+                } else { effect.status = 'completed'; effect.result = value; }
+                await save();
+                assertNimiScope(nimiEnvelope.scope);
+                if (ToolManager.isStealthTool(effect.name)) result.stealthCalls.push(effect.name);
+                else result.invocations.push({ ...effectInvocation(effect, ToolManager.getDisplayName(effect.name)), reasoning: reasoningText || null });
+            } catch (error) {
+                if (effect.status === 'pending') { effect.status = 'not-executed'; effect.error = error.message; } else if (effect.status === 'running') { effect.status = started ? 'unconfirmed' : 'not-executed'; effect.error = error.message; }
+                for (const remaining of plan.effects) if (remaining.status === 'pending') remaining.status = 'not-executed';
+                await save();
+                throw error;
+            } finally { if (toast) toastr.clear(toast); }
+        }
         return result;
     }
 
@@ -896,8 +896,22 @@ export class ToolManager {
      * Saves function tool invocations to the last user chat message extra metadata.
      * @param {ToolInvocation[]} invocations Successful tool invocations
      */
-    static async saveFunctionToolInvocations(invocations) {
+    static async saveFunctionToolInvocations(invocations, { nimiEnvelope = null } = {}) {
         if (!Array.isArray(invocations) || invocations.length === 0) {
+            return;
+        }
+        assertNimiScope(nimiEnvelope.scope);
+        const receipt = requireNimiToolTerminal(nimiEnvelope);
+        delete receipt.scope;
+        receipt.turnItems.push(...invocations.map(invocation => ({ type: 'tool-result', toolResult: {
+            toolCallId: invocation.id, toolName: invocation.name, result: invocation.result, isError: Boolean(invocation.error),
+        } })));
+        const last = chat.at(-1);
+        if (last?.extra?.nimi?.id === receipt.id) {
+            last.extra.nimi = receipt;
+            last.extra.tool_invocations = invocations;
+            await eventSource.emit(event_types.TOOL_CALLS_PERFORMED, invocations);
+            await saveChatConditional();
             return;
         }
         const message = {
@@ -911,6 +925,7 @@ export class ToolManager {
                 tool_invocations: invocations,
                 api: getGeneratingApi(),
                 model: getGeneratingModel(),
+                nimi: receipt,
             },
         };
         chat.push(message);

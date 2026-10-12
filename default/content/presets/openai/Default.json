@@ -1,4 +1,5 @@
 {
+    "nimi_parameter_overrides": {},
     "chat_completion_source": "openai",
     "openai_model": "gpt-5.6-terra",
     "claude_model": "claude-sonnet-5",

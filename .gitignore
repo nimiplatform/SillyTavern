@@ -59,3 +59,11 @@ public/scripts/extensions/third-party
 yarn.lock
 *.code-workspace
 test-results/
+
+# Nimi local builds and private acceptance output
+/.nimi/local/
+/dist-electron/
+/dist-electron-package/
+/public/scripts/nimi/platform.bundle.js
+/public/css/nimi-kit.css
+/public/lib.bundle.js

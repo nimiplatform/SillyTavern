@@ -1,14 +1,8 @@
+import { generateRaw } from '../../../script.js';
+import { captureNimiScope, assertNimiScope } from '../../nimi/platform.bundle.js';
+import { serializeNimi, resetNimiReplay } from '../../nimi/history.js';
 export { translate };
-
-import {
-    eventSource,
-    event_types,
-    getRequestHeaders,
-    reloadCurrentChat,
-    saveSettingsDebounced,
-    substituteParams,
-    updateMessageBlock,
-} from '../../../script.js';
+import { eventSource, event_types, reloadCurrentChat, saveSettingsDebounced, substituteParams, updateMessageBlock } from '../../../script.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../extensions.js';
 import { POPUP_TYPE, callGenericPopup } from '../../popup.js';
 import { updateReasoningUI } from '../../reasoning.js';
@@ -18,7 +12,7 @@ import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '
 import { enumIcons } from '../../slash-commands/SlashCommandCommonEnumsProvider.js';
 import { enumTypes, SlashCommandEnumValue } from '../../slash-commands/SlashCommandEnumValue.js';
 import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
-import { splitRecursive } from '../../utils.js';
+
 
 export const autoModeOptions = {
     NONE: 'none',
@@ -166,7 +160,8 @@ function loadSettings() {
         }
     }
 
-    $(`#translation_provider option[value="${extension_settings.translate.provider}"]`).attr('selected', 'true');
+    extension_settings.translate.provider = 'nimi';
+    $('#translation_provider').empty().append(new Option('Nimi text.generate', 'nimi')).val('nimi');
     $(`#translation_target_language option[value="${extension_settings.translate.target_language}"]`).attr('selected', 'true');
     $(`#translation_auto_mode option[value="${extension_settings.translate.auto_mode}"]`).attr('selected', 'true');
     $('#deepl_api_endpoint').val(extension_settings.translate.deepl_endpoint).toggle(extension_settings.translate.provider === 'deepl');
@@ -183,9 +178,11 @@ function isGeneratingSwipe(messageId) {
 }
 
 async function translateImpersonate() {
+    const scope = captureNimiScope();
     const sendTextArea = $('#send_textarea');
     const text = sendTextArea.val().toString();
     const translatedText = await translate(text, extension_settings.translate.target_language);
+    assertNimiScope(scope);
     sendTextArea.val(translatedText);
 }
 
@@ -195,6 +192,7 @@ async function translateImpersonate() {
  * @returns {Promise<void>}
  */
 async function translateIncomingMessage(messageId) {
+    const nimiScope = captureNimiScope();
     const context = getContext();
     const message = context.chat[messageId];
 
@@ -211,9 +209,11 @@ async function translateIncomingMessage(messageId) {
     }
 
     const textToTranslate = substituteParams(message.mes, { name2Override: message.name });
-    const translation = await translate(textToTranslate, extension_settings.translate.target_language);
+    const results = [];
+    const translation = await translate(textToTranslate, extension_settings.translate.target_language, null, receipt => results.push(receipt));
+    assertNimiScope(nimiScope);
     message.extra.display_text = translation;
-
+    message.extra.nimi_translation = { sourceText: textToTranslate, targetLanguage: extension_settings.translate.target_language, results };
     updateMessageBlock(Number(messageId), message);
 }
 
@@ -223,6 +223,7 @@ async function translateIncomingMessage(messageId) {
  * @returns {Promise<boolean>} translated or not
  */
 async function translateIncomingMessageReasoning(messageId) {
+    const nimiScope = captureNimiScope();
     const context = getContext();
     const message = context.chat[messageId];
 
@@ -240,210 +241,11 @@ async function translateIncomingMessageReasoning(messageId) {
 
     const textToTranslate = substituteParams(message.extra.reasoning, { name2Override: message.name });
     const translation = await translate(textToTranslate, extension_settings.translate.target_language);
+    assertNimiScope(nimiScope);
     message.extra.reasoning_display_text = translation;
 
     updateReasoningUI(Number(messageId));
     return true;
-}
-
-async function translateProviderOneRing(text, lang) {
-    let from_lang = lang == extension_settings.translate.internal_language
-        ? extension_settings.translate.target_language
-        : extension_settings.translate.internal_language;
-
-    const response = await fetch('/api/translate/onering', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ text: text, from_lang: from_lang, to_lang: lang }),
-    });
-
-    if (response.ok) {
-        const result = await response.text();
-        return result;
-    }
-
-    throw new Error(response.statusText);
-}
-
-/**
- * Translates text using the LibreTranslate API
- * @param {string} text Text to translate
- * @param {string} lang Target language code
- * @returns {Promise<string>} Translated text
- */
-async function translateProviderLibre(text, lang) {
-    const response = await fetch('/api/translate/libre', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ text: text, lang: lang }),
-    });
-
-    if (response.ok) {
-        const result = await response.text();
-        return result;
-    }
-
-    throw new Error(response.statusText);
-}
-
-/**
- * Translates text using the Google Translate API
- * @param {string} text Text to translate
- * @param {string} lang Target language code
- * @returns {Promise<string>} Translated text
- */
-async function translateProviderGoogle(text, lang) {
-    const response = await fetch('/api/translate/google', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ text: text, lang: lang }),
-    });
-
-    if (response.ok) {
-        const result = await response.text();
-        return result;
-    }
-
-    throw new Error(response.statusText);
-}
-
-/**
- * Translates text using an instance of the Lingva Translate
- * @param {string} text Text to translate
- * @param {string} lang Target language code
- * @returns {Promise<string>} Translated text
- */
-async function translateProviderLingva(text, lang) {
-    const response = await fetch('/api/translate/lingva', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ text: text, lang: lang }),
-    });
-
-    if (response.ok) {
-        const result = await response.text();
-        return result;
-    }
-
-    throw new Error(response.statusText);
-}
-
-/**
- * Translates text using the DeepL API
- * @param {string} text Text to translate
- * @param {string} lang Target language code
- * @returns {Promise<string>} Translated text
- */
-async function translateProviderDeepl(text, lang) {
-    if (!secret_state.deepl) {
-        throw new Error('No DeepL API key');
-    }
-
-    const endpoint = extension_settings.translate.deepl_endpoint || 'free';
-    const response = await fetch('/api/translate/deepl', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ text: text, lang: lang, endpoint: endpoint }),
-    });
-
-    if (response.ok) {
-        const result = await response.text();
-        return result;
-    }
-
-    throw new Error(response.statusText);
-}
-
-/**
- * Translates text using the DeepLX API
- * @param {string} text Text to translate
- * @param {string} lang Target language code
- * @returns {Promise<string>} Translated text
- */
-async function translateProviderDeepLX(text, lang) {
-    const response = await fetch('/api/translate/deeplx', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ text: text, lang: lang }),
-    });
-
-    if (response.ok) {
-        const result = await response.text();
-        return result;
-    }
-
-    throw new Error(response.statusText);
-}
-
-/**
- * Translates text using the Bing API
- * @param {string} text Text to translate
- * @param {string} lang Target language code
- * @returns {Promise<string>} Translated text
- */
-async function translateProviderBing(text, lang) {
-    const response = await fetch('/api/translate/bing', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ text: text, lang: lang }),
-    });
-
-    if (response.ok) {
-        const result = await response.text();
-        return result;
-    }
-
-    throw new Error(response.statusText);
-}
-
-/**
- * Translates text using the Yandex Translate API
- * @param {string} text Text to translate
- * @param {string} lang Target language code
- * @returns {Promise<string>} Translated text
- */
-async function translateProviderYandex(text, lang) {
-    let chunks = [];
-    const chunkSize = 5000;
-    if (text.length <= chunkSize) {
-        chunks.push(text);
-    } else {
-        chunks = splitRecursive(text, chunkSize);
-    }
-    const response = await fetch('/api/translate/yandex', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ chunks: chunks, lang: lang }),
-    });
-
-    if (response.ok) {
-        const result = await response.text();
-        return result;
-    }
-
-    throw new Error(response.statusText);
-}
-
-/**
- * Splits text into chunks and translates each chunk separately
- * @param {string} text Text to translate
- * @param {string} lang Target language code
- * @param {(text: string, lang: string) => Promise<string>} translateFn Function to translate a single chunk (must return a Promise)
- * @param {number} chunkSize Maximum chunk size
- * @returns {Promise<string>} Translated text
- */
-async function chunkedTranslate(text, lang, translateFn, chunkSize = 5000) {
-    if (text.length <= chunkSize) {
-        return await translateFn(text, lang);
-    }
-
-    const chunks = splitRecursive(text, chunkSize);
-
-    let result = '';
-    for (const chunk of chunks) {
-        result += await translateFn(chunk, lang);
-    }
-    return result;
 }
 
 /**
@@ -453,7 +255,7 @@ async function chunkedTranslate(text, lang, translateFn, chunkSize = 5000) {
  * @param {string} provider Translation provider to use
  * @returns {Promise<string>} Translated text
  */
-async function translate(text, lang, provider = null) {
+async function translate(text, lang, provider = null, onNimiResult = null) {
     try {
         if (text == '') {
             return '';
@@ -473,7 +275,7 @@ async function translate(text, lang, provider = null) {
 
         let result = '';
         for (let i = 0; i < chunks.length; i++) {
-            result += await translateInner(chunks[i], lang, provider);
+            result += await translateInner(chunks[i], lang, provider, onNimiResult);
             if (i < links.length) result += links[i][0];
         }
 
@@ -481,6 +283,7 @@ async function translate(text, lang, provider = null) {
     } catch (error) {
         console.log(error);
         toastr.error(String(error), 'Failed to translate message');
+        throw error;
     }
 }
 
@@ -491,37 +294,14 @@ async function translate(text, lang, provider = null) {
  * @param {string} provider Translation provider to use
  * @returns {Promise<string>} Translated text
  */
-async function translateInner(text, lang, provider) {
-    if (text == '') {
-        return '';
-    }
-    if (!provider) {
-        provider = extension_settings.translate.provider;
-    }
-    switch (provider) {
-        case 'libre':
-            return await translateProviderLibre(text, lang);
-        case 'google':
-            return await chunkedTranslate(text, lang, translateProviderGoogle, 5000);
-        case 'lingva':
-            return await chunkedTranslate(text, lang, translateProviderLingva, 5000);
-        case 'deepl':
-            return await translateProviderDeepl(text, lang);
-        case 'deeplx':
-            return await chunkedTranslate(text, lang, translateProviderDeepLX, 1500);
-        case 'oneringtranslator':
-            return await translateProviderOneRing(text, lang);
-        case 'bing':
-            return await chunkedTranslate(text, lang, translateProviderBing, 1000);
-        case 'yandex':
-            return await translateProviderYandex(text, lang);
-        default:
-            console.error('Unknown translation provider', provider);
-            return text;
-    }
+async function translateInner(text, lang, provider, onNimiResult = null) {
+    if (!text) return '';
+    return generateRaw({ prompt: text, systemPrompt: `Translate the user's text into ${lang}. Preserve formatting, names and meaning. Return only the translation.`, trimNames: false,
+        onNimiResult: receipt => { const saved = serializeNimi(receipt); delete saved.scope; onNimiResult?.(saved); } });
 }
 
 async function translateOutgoingMessage(messageId) {
+    const nimiScope = captureNimiScope();
     const context = getContext();
     const message = context.chat[messageId];
 
@@ -530,8 +310,13 @@ async function translateOutgoingMessage(messageId) {
     }
 
     const originalText = message.mes;
+    const results = [];
+    const translatedText = await translate(originalText, extension_settings.translate.internal_language, null, receipt => results.push(receipt));
+    assertNimiScope(nimiScope);
     message.extra.display_text = originalText;
-    message.mes = await translate(originalText, extension_settings.translate.internal_language);
+    message.extra.nimi_translation = { sourceText: originalText, targetLanguage: extension_settings.translate.internal_language, results };
+    message.mes = translatedText;
+    resetNimiReplay([message]);
     updateMessageBlock(messageId, message);
 
     console.log('translateOutgoingMessage', messageId);
@@ -550,6 +335,7 @@ function createEventHandler(translateFunction, shouldTranslateFunction) {
 }
 
 async function onTranslateInputMessageClick() {
+    const scope = captureNimiScope();
     const textarea = document.getElementById('send_textarea');
 
     if (!(textarea instanceof HTMLTextAreaElement)) {
@@ -563,6 +349,7 @@ async function onTranslateInputMessageClick() {
 
     const toast = toastr.info('Input Message is translating', 'Please wait...');
     const translatedText = await translate(textarea.value, extension_settings.translate.internal_language);
+    assertNimiScope(scope);
     textarea.value = translatedText;
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
     toastr.clear(toast);
@@ -578,16 +365,19 @@ async function onTranslateChatClick() {
 
     try {
         translateChatExecuting = true;
+        const scope = captureNimiScope();
         const context = getContext();
         const chat = context.chat;
 
         toastr.info(`${chat.length} message(s) queued for translation.`, 'Please wait...');
 
         for (let i = 0; i < chat.length; i++) {
+            assertNimiScope(scope);
             await translateIncomingMessageReasoning(i);
             await translateIncomingMessage(i);
         }
 
+        assertNimiScope(scope);
         await context.saveChat();
     } catch (error) {
         console.log(error);

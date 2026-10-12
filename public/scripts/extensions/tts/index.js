@@ -1,26 +1,11 @@
+import { NimiTtsProvider } from './nimi.js';
+import { captureNimiScope, assertNimiScope } from '../../nimi/platform.bundle.js';
+import { MEDIA_TYPE, MEDIA_SOURCE } from '../../constants.js';
 import { cancelTtsPlay, eventSource, event_types, getCurrentChatId, isStreamingEnabled, name2, saveSettingsDebounced, substituteParams } from '../../../script.js';
 import { ModuleWorkerWrapper, extension_settings, getContext, renderExtensionTemplateAsync } from '../../extensions.js';
 import { delay, escapeRegex, getBase64Async, getStringHash, onlyUnique, regexFromString } from '../../utils.js';
 import { accountStorage } from '../../util/AccountStorage.js';
-import { EdgeTtsProvider } from './edge.js';
-import { ElevenLabsTtsProvider } from './elevenlabs.js';
-import { SileroTtsProvider } from './silerotts.js';
-import { GptSovitsV2Provider } from './gpt-sovits-v2.js';
-import { GptSoVITSAdapterProvider } from './gpt-sovits-adapter.js';
-import { CoquiTtsProvider } from './coqui.js';
-import { SystemTtsProvider } from './system.js';
-import { NovelTtsProvider } from './novel.js';
 import { power_user } from '../../power-user.js';
-import { OpenAITtsProvider } from './openai.js';
-import { OpenAICompatibleTtsProvider } from './openai-compatible.js';
-import { XTTSTtsProvider } from './xtts.js';
-import { VITSTtsProvider } from './vits.js';
-import { GSVITtsProvider } from './gsvi.js';
-import { SBVits2TtsProvider } from './sbvits2.js';
-import { AllTalkTtsProvider } from './alltalk.js';
-import { CosyVoiceProvider } from './cosyvoice.js';
-import { SpeechT5TtsProvider } from './speecht5.js';
-import { AzureTtsProvider } from './azure.js';
 import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../slash-commands/SlashCommandArgument.js';
@@ -28,16 +13,6 @@ import { debounce_timeout } from '../../constants.js';
 import { SlashCommandEnumValue, enumTypes } from '../../slash-commands/SlashCommandEnumValue.js';
 import { enumIcons } from '../../slash-commands/SlashCommandCommonEnumsProvider.js';
 import { POPUP_TYPE, callGenericPopup } from '../../popup.js';
-import { GoogleTranslateTtsProvider } from './google-translate.js';
-import { GoogleNativeTtsProvider } from './google-native.js';
-import { ChatterboxTtsProvider } from './chatterbox.js';
-import { KokoroTtsProvider } from './kokoro.js';
-import { TtsWebuiProvider } from './tts-webui.js';
-import { PollinationsTtsProvider } from './pollinations.js';
-import { MiniMaxTtsProvider } from './minimax.js';
-import { ElectronHubTtsProvider } from './electronhub.js';
-import { ChutesTtsProvider } from './chutes.js';
-import { VolcengineTtsProvider } from './volcengine.js';
 import { applyLocale, t } from '/scripts/i18n.js';
 
 const UPDATE_INTERVAL = 1000;
@@ -121,41 +96,13 @@ export function registerTtsProvider(name, provider) {
     }
 }
 
-const ttsProviders = {
-    AllTalk: AllTalkTtsProvider,
-    Azure: AzureTtsProvider,
-    Chatterbox: ChatterboxTtsProvider,
-    Chutes: ChutesTtsProvider,
-    Coqui: CoquiTtsProvider,
-    'CosyVoice (Unofficial)': CosyVoiceProvider,
-    Edge: EdgeTtsProvider,
-    ElevenLabs: ElevenLabsTtsProvider,
-    'Electron Hub': ElectronHubTtsProvider,
-    'Google Translate': GoogleTranslateTtsProvider,
-    'Google Gemini TTS': GoogleNativeTtsProvider,
-    GSVI: GSVITtsProvider,
-    'GPT-SoVITS-Adapter': GptSoVITSAdapterProvider,
-    'GPT-SoVITS-V2 (Unofficial)': GptSovitsV2Provider,
-    Kokoro: KokoroTtsProvider,
-    MiniMax: MiniMaxTtsProvider,
-    Novel: NovelTtsProvider,
-    OpenAI: OpenAITtsProvider,
-    'OpenAI Compatible': OpenAICompatibleTtsProvider,
-    Pollinations: PollinationsTtsProvider,
-    SBVits2: SBVits2TtsProvider,
-    Silero: SileroTtsProvider,
-    SpeechT5: SpeechT5TtsProvider,
-    System: SystemTtsProvider,
-    'TTS WebUI': TtsWebuiProvider,
-    VITS: VITSTtsProvider,
-    XTTSv2: XTTSTtsProvider,
-    Volcengine: VolcengineTtsProvider,
-};
+const ttsProviders = { Nimi: NimiTtsProvider };
 let ttsProvider;
 let ttsProviderName;
 
 
 async function onNarrateOneMessage() {
+    const scope = captureNimiScope();
     audioElement.src = '/sounds/silence.mp3';
     const context = getContext();
     const id = $(this).closest('.mes').attr('mesid');
@@ -166,6 +113,8 @@ async function onNarrateOneMessage() {
     }
 
     resetTtsPlayback();
+    await initVoiceMap();
+    assertNimiScope(scope);
     processAndQueueTtsMessage(message, Number(id), { manual: true });
     moduleWorker();
 }
@@ -219,6 +168,7 @@ async function moduleWorker() {
 }
 
 function resetTtsPlayback() {
+    ttsProvider?.cancel?.();
     // Stop system TTS utterance
     cancelTtsPlay();
 
@@ -413,13 +363,16 @@ function updateUiAudioPlayState() {
     }
 }
 
-function onAudioControlClicked() {
+async function onAudioControlClicked() {
     audioElement.src = '/sounds/silence.mp3';
     let context = getContext();
     // Not pausing, doing a full stop to anything TTS is doing. Better UX as pause is not as useful
     if (!audioElement.paused || isTtsProcessing()) {
         resetTtsPlayback();
     } else if (context?.chat?.length > 0) {
+        const scope = captureNimiScope();
+        await initVoiceMap();
+        assertNimiScope(scope);
         // Default play behavior if not processing or playing is to play the last message.
         const id = context.chat.length - 1;
         processAndQueueTtsMessage(context.chat[id], id, { manual: true });
@@ -498,28 +451,51 @@ const ttsJobQueue = [];
 /** @type {TtsMessage|null} */
 let currentTtsJob = null; // Null if nothing is currently being processed
 
-function completeTtsJob() {
+function completeTtsJob(expectedJob = currentTtsJob) {
+    if (expectedJob !== currentTtsJob) return;
     console.info(`Current TTS job for ${currentTtsJob?.name} completed.`);
     currentTtsJob = null;
 }
 
 async function tts(text, voiceId, char, voiceMapKey = null) {
+    const scope = captureNimiScope();
+    const expectedJob = currentTtsJob;
     const messageId = currentTtsJob?.id ?? null;
 
     await eventSource.emit(event_types.TTS_JOB_STARTED, { messageId, characterName: char, text, voiceId });
 
     async function processResponse(response) {
+        assertNimiScope(scope);
+        if (expectedJob !== currentTtsJob) throw new DOMException('Speech queue changed', 'AbortError');
         // RVC injection
         if (typeof globalThis.rvcVoiceConversion === 'function' && extension_settings.rvc.enabled)
             response = await globalThis.rvcVoiceConversion(response, char, text);
 
         const audioResult = await addAudioJob(response, char);
+        assertNimiScope(scope);
+        if (response.nimiMedia && Number.isInteger(messageId)) {
+            const context = getContext();
+            const message = context.chat[messageId];
+            if (message) {
+                message.extra ??= {};
+                message.extra.nimi_media ??= [];
+                message.extra.nimi_media.push(response.nimiMedia);
+                message.extra.media ??= [];
+                for (const asset of response.nimiMedia.assets) if (asset.mimeType.startsWith('audio/')) {
+                    message.extra.media.push({ type: MEDIA_TYPE.AUDIO, source: MEDIA_SOURCE.GENERATED, url: asset.url, title: text });
+                }
+                assertNimiScope(scope);
+                await context.saveChat();
+            }
+        }
         const eventData = { messageId, characterName: char, text, audio: audioResult.audioBlob, mimeType: audioResult.mimeType };
         await eventSource.emit(event_types.TTS_AUDIO_READY, eventData);
     }
 
     // voiceMapKey can also include segment qualifiers, e.g. '{char} ("Quotes")'
     let response = await ttsProvider.generateTts(text, voiceId, voiceMapKey);
+    assertNimiScope(scope);
+    if (expectedJob !== currentTtsJob) throw new DOMException('Speech queue changed', 'AbortError');
 
     // If async generator, process every chunk as it comes in
     if (typeof response[Symbol.asyncIterator] === 'function') {
@@ -531,7 +507,7 @@ async function tts(text, voiceId, char, voiceMapKey = null) {
     }
 
     await eventSource.emit(event_types.TTS_JOB_COMPLETE, { messageId, characterName: char });
-    completeTtsJob();
+    completeTtsJob(expectedJob);
 }
 
 function parseMessageSegments(text) {
@@ -605,6 +581,7 @@ async function processTtsQueue() {
 
     console.debug('New message found, running TTS');
     currentTtsJob = ttsJobQueue.shift();
+    const expectedJob = currentTtsJob;
 
     // Handle segmented jobs that already have processed text
     if (currentTtsJob.segmentType && currentTtsJob.segmentText) {
@@ -725,7 +702,7 @@ async function processTtsQueue() {
     try {
         if (!text) {
             console.warn('Got empty text in TTS queue job.');
-            completeTtsJob();
+            completeTtsJob(expectedJob);
             return;
         }
 
@@ -734,7 +711,7 @@ async function processTtsQueue() {
 
         if (segments.length === 0) {
             console.warn('No valid segments found in text.');
-            completeTtsJob();
+            completeTtsJob(expectedJob);
             return;
         }
 
@@ -839,11 +816,15 @@ function joinQuotedBlocks(text, opts = {}) {
 }
 
 async function playFullConversation() {
+    const scope = captureNimiScope();
     resetTtsPlayback();
 
     if (!extension_settings.tts.enabled) {
         return toastr.warning('TTS is disabled. Please enable it in the extension settings.');
     }
+
+    await initVoiceMap();
+    assertNimiScope(scope);
 
     const context = getContext();
 
@@ -898,12 +879,13 @@ function loadSettings() {
     $('#playback_rate_block').toggle(extension_settings.tts.currentProvider !== 'System');
 
     $('body').toggleClass('tts', extension_settings.tts.enabled);
+    if (extension_settings.tts.enabled) void initVoiceMap();
 }
 
 const defaultSettings = {
     voiceMap: '',
     ttsEnabled: false,
-    currentProvider: 'ElevenLabs',
+    currentProvider: 'Nimi',
     auto_generation: true,
     narrate_user: false,
     playback_rate: 1,
@@ -1045,6 +1027,7 @@ function updateRegexPatternWarning() {
 //##############//
 
 async function loadTtsProvider(provider) {
+    provider = 'Nimi';
     //Clear the current config and add new config
     $('#tts_provider_settings').html('');
 
@@ -1572,6 +1555,7 @@ export async function init() {
     addAudioControl(); // Depends on Extension Controls
     setInterval(wrapper.update.bind(wrapper), UPDATE_INTERVAL); // Init depends on all the things
     eventSource.on(event_types.MESSAGE_SWIPED, resetTtsPlayback);
+    window.addEventListener('nimi-work-invalidated', resetTtsPlayback);
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
     eventSource.on(event_types.MESSAGE_DELETED, onMessageDeleted);
     eventSource.on(event_types.GROUP_UPDATED, onChatChanged);

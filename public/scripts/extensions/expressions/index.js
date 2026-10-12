@@ -1,12 +1,13 @@
-import { Fuse } from '../../../lib.js';
+import { decideNimiExpression } from '../../nimi/media.js';
+import { captureNimiScope, assertNimiScope } from '../../nimi/platform.bundle.js';
 
-import { characters, eventSource, event_types, generateQuietPrompt, generateRaw, getRequestHeaders, online_status, saveSettingsDebounced, substituteParams, substituteParamsExtended, system_message_types, this_chid } from '../../../script.js';
+import { characters, eventSource, event_types, getRequestHeaders, saveSettingsDebounced, substituteParams, system_message_types, this_chid } from '../../../script.js';
 import { dragElement, isMobile } from '../../RossAscends-mods.js';
-import { getContext, getApiUrl, modules, extension_settings, ModuleWorkerWrapper, doExtrasFetch, renderExtensionTemplateAsync } from '../../extensions.js';
+import { getContext, extension_settings, ModuleWorkerWrapper, renderExtensionTemplateAsync } from '../../extensions.js';
 import { loadMovingUIState, performFuzzySearch, power_user } from '../../power-user.js';
-import { onlyUnique, debounce, getCharaFilename, trimToEndSentence, trimToStartSentence, waitUntilCondition, findChar, isFalseBoolean, includesIgnoreCaseAndAccents } from '../../utils.js';
+import { onlyUnique, debounce, getCharaFilename, trimToEndSentence, trimToStartSentence, findChar, isFalseBoolean, includesIgnoreCaseAndAccents } from '../../utils.js';
 import { hideMutedSprites, selected_group } from '../../group-chats.js';
-import { isJsonSchemaSupported } from '../../textgen-settings.js';
+
 import { debounce_timeout } from '../../constants.js';
 import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../slash-commands/SlashCommand.js';
@@ -14,10 +15,10 @@ import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '
 import { SlashCommandEnumValue, enumTypes } from '../../slash-commands/SlashCommandEnumValue.js';
 import { commonEnumProviders } from '../../slash-commands/SlashCommandCommonEnumsProvider.js';
 import { slashCommandReturnHelper } from '../../slash-commands/SlashCommandReturnHelper.js';
-import { generateWebLlmChatPrompt, isWebLlmSupported } from '../shared.js';
+
 import { Popup, POPUP_RESULT } from '../../popup.js';
 import { t } from '../../i18n.js';
-import { removeReasoningFromString } from '../../reasoning.js';
+
 import { macros } from '../../macros/macro-system.js';
 import { MacrosParser } from '/scripts/macros.js';
 export { MODULE_NAME };
@@ -81,10 +82,7 @@ const RESET_SPRITE_LABEL = '#reset';
 
 /** @enum {number} */
 const EXPRESSION_API = {
-    local: 0,
-    extras: 1,
     llm: 2,
-    webllm: 3,
     none: 99,
 };
 
@@ -527,19 +525,7 @@ async function moduleWorker({ newChat = false } = {}) {
     }
 
     const offlineMode = $('.expression_settings .offline_mode');
-    if (!modules.includes('classify') && extension_settings.expressions.api == EXPRESSION_API.extras) {
-        $('#open_chat_expressions').show();
-        $('#no_chat_expressions').hide();
-        offlineMode.css('display', 'block');
-        lastCharacter = context.groupId || context.characterId;
-
-        if (context.groupId) {
-            await validateImages(spriteFolderName, true);
-            await forceUpdateVisualNovelMode();
-        }
-
-        return;
-    } else {
+    {
         // force reload expressions list on connect to API
         if (offlineMode.is(':visible')) {
             expressionsList = null;
@@ -722,11 +708,6 @@ async function classifyCallback(/** @type {{api: string?, filter: string?, promp
 
     if (expressionApi === EXPRESSION_API.none) {
         toastr.warning('No classifier API selected');
-        return '';
-    }
-
-    if (!modules.includes('classify') && expressionApi == EXPRESSION_API.extras) {
-        toastr.warning('Text classification is disabled or not available');
         return '';
     }
 
@@ -992,93 +973,6 @@ function sampleClassifyText(text) {
 }
 
 /**
- * Gets the classification prompt for the LLM API.
- * @param {string[]} labels A list of labels to search for.
- * @returns {Promise<string>} Prompt for the LLM API.
- */
-async function getLlmPrompt(labels) {
-    const labelsString = labels.map(x => `"${x}"`).join(', ');
-    const prompt = substituteParamsExtended(String(extension_settings.expressions.llmPrompt), { labels: labelsString });
-    return prompt;
-}
-
-/**
- * Parses the emotion response from the LLM API.
- * @param {string} emotionResponse The response from the LLM API.
- * @param {string[]} labels A list of labels to search for.
- * @returns {string} The parsed emotion or the fallback expression.
- */
-function parseLlmResponse(emotionResponse, labels) {
-    try {
-        const parsedEmotion = JSON.parse(emotionResponse);
-        const response = parsedEmotion?.emotion?.trim()?.toLowerCase();
-
-        if (!response || !labels.includes(response)) {
-            console.debug(`Parsed emotion response: ${response} not in labels: ${labels}`);
-            throw new Error('Emotion not in labels');
-        }
-
-        return response;
-    } catch {
-        // Clean possible reasoning from response
-        emotionResponse = removeReasoningFromString(emotionResponse);
-
-        const fuse = new Fuse(labels, { includeScore: true });
-        console.debug('Using fuzzy search in labels:', labels);
-        const result = fuse.search(emotionResponse);
-        if (result.length > 0) {
-            console.debug(`fuzzy search found: ${result[0].item} as closest for the LLM response:`, emotionResponse);
-            return result[0].item;
-        }
-        const lowerCaseResponse = String(emotionResponse || '').toLowerCase();
-        for (const label of labels) {
-            if (lowerCaseResponse.includes(label.toLowerCase())) {
-                console.debug(`Found label ${label} in the LLM response:`, emotionResponse);
-                return label;
-            }
-        }
-    }
-
-    throw new Error('Could not parse emotion response ' + emotionResponse);
-}
-
-/**
- * Gets the JSON schema for the LLM API.
- * @param {string[]} emotions A list of emotions to search for.
- * @returns {object} The JSON schema for the LLM API.
- */
-function getJsonSchema(emotions) {
-    return {
-        $schema: 'http://json-schema.org/draft-04/schema#',
-        type: 'object',
-        properties: {
-            emotion: {
-                type: 'string',
-                enum: emotions,
-            },
-        },
-        required: [
-            'emotion',
-        ],
-        additionalProperties: false,
-    };
-}
-
-function onTextGenSettingsReady(args) {
-    // Only call if inside an API call
-    if (inApiCall && extension_settings.expressions.api === EXPRESSION_API.llm && isJsonSchemaSupported()) {
-        const emotions = DEFAULT_EXPRESSIONS;
-        Object.assign(args, {
-            top_k: 1,
-            stop: [],
-            stopping_strings: [],
-            custom_token_bans: [],
-            json_schema: getJsonSchema(emotions),
-        });
-    }
-}
-
-/**
  * Retrieves the label of an expression via classification based on the provided text.
  * Optionally allows to override the expressions API being used.
  * @param {string} text - The text to classify and retrieve the expression label for.
@@ -1089,116 +983,21 @@ function onTextGenSettingsReady(args) {
  * @returns {Promise<string?>} - The label of the expression.
  */
 export async function getExpressionLabel(text, expressionsApi = extension_settings.expressions.api, { filterAvailable = null, customPrompt = null } = {}) {
-    // Return if text is undefined, saving a costly fetch request
-    if ((!modules.includes('classify') && expressionsApi == EXPRESSION_API.extras) || !text) {
-        return extension_settings.expressions.fallback_expression;
+    if (!text || expressionsApi === EXPRESSION_API.none) return extension_settings.expressions.fallback_expression;
+    const labels = await getExpressionsList({ filterAvailable: filterAvailable ?? extension_settings.expressions.filterAvailable });
+    if (!labels.length) throw new Error('No character expressions are available.');
+    if (labels.length === 1) return labels[0];
+    const scope = captureNimiScope();
+    const message = getContext().chat.findLast(message => !message.is_user && !message.is_system && message.mes === text);
+    const instructions = (customPrompt || extension_settings.expressions.llmPrompt).replace(/\{\{labels}}/gi, labels.join(', '));
+    const { answer, result } = await decideNimiExpression(sampleClassifyText(text), labels, instructions);
+    assertNimiScope(scope);
+    if (message?.mes === text) {
+        message.extra ??= {};
+        message.extra.nimi_expression = { sourceText: text, labels, result };
+        await getContext().saveChat();
     }
-
-    if (extension_settings.expressions.translate && typeof globalThis.translate === 'function') {
-        text = await globalThis.translate(text, 'en');
-    }
-
-    text = sampleClassifyText(text);
-
-    filterAvailable ??= extension_settings.expressions.filterAvailable;
-    if (filterAvailable && ![EXPRESSION_API.llm, EXPRESSION_API.webllm].includes(expressionsApi)) {
-        console.debug('Filter available is only supported for LLM and WebLLM expressions');
-    }
-
-    try {
-        switch (expressionsApi) {
-            // Local BERT pipeline
-            case EXPRESSION_API.local: {
-                const localResult = await fetch('/api/extra/classify', {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify({ text: text }),
-                });
-
-                if (localResult.ok) {
-                    const data = await localResult.json();
-                    return data.classification[0].label;
-                }
-            } break;
-            // Using LLM
-            case EXPRESSION_API.llm: {
-                try {
-                    await waitUntilCondition(() => online_status !== 'no_connection', 3000, 250);
-                } catch (error) {
-                    console.warn('No LLM connection. Using fallback expression', error);
-                    return extension_settings.expressions.fallback_expression;
-                }
-
-                const expressionsList = await getExpressionsList({ filterAvailable: filterAvailable });
-                const prompt = substituteParamsExtended(customPrompt, { labels: expressionsList }) || await getLlmPrompt(expressionsList);
-                eventSource.once(event_types.TEXT_COMPLETION_SETTINGS_READY, onTextGenSettingsReady);
-
-                let emotionResponse;
-                try {
-                    inApiCall = true;
-                    switch (extension_settings.expressions.promptType) {
-                        case PROMPT_TYPE.raw:
-                            emotionResponse = await generateRaw({ prompt: text, systemPrompt: prompt });
-                            break;
-                        case PROMPT_TYPE.full:
-                            emotionResponse = await generateQuietPrompt({ quietPrompt: prompt });
-                            break;
-                    }
-                } finally {
-                    inApiCall = false;
-                }
-                return parseLlmResponse(emotionResponse, expressionsList);
-            }
-            // Using WebLLM
-            case EXPRESSION_API.webllm: {
-                if (!isWebLlmSupported()) {
-                    console.warn('WebLLM is not supported. Using fallback expression');
-                    return extension_settings.expressions.fallback_expression;
-                }
-
-                const expressionsList = await getExpressionsList({ filterAvailable: filterAvailable });
-                const prompt = substituteParamsExtended(customPrompt, { labels: expressionsList }) || await getLlmPrompt(expressionsList);
-                const messages = [
-                    { role: 'user', content: text + '\n\n' + prompt },
-                ];
-
-                const emotionResponse = await generateWebLlmChatPrompt(messages);
-                return parseLlmResponse(emotionResponse, expressionsList);
-            }
-            // Extras
-            case EXPRESSION_API.extras: {
-                const url = new URL(getApiUrl());
-                url.pathname = '/api/classify';
-
-                const extrasResult = await doExtrasFetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Bypass-Tunnel-Reminder': 'bypass',
-                    },
-                    body: JSON.stringify({ text: text }),
-                });
-
-                if (extrasResult.ok) {
-                    const data = await extrasResult.json();
-                    return data.classification[0].label;
-                }
-            } break;
-            // None
-            case EXPRESSION_API.none: {
-                // Return empty, the fallback expression will be used
-                return '';
-            }
-            default: {
-                toastr.error('Invalid API selected');
-                return '';
-            }
-        }
-    } catch (error) {
-        toastr.error('Could not classify expression. Check the console or your backend for more information.');
-        console.error(error);
-        return extension_settings.expressions.fallback_expression;
-    }
+    return answer.selectedCandidateId;
 }
 
 /**
@@ -1454,6 +1253,7 @@ function getCachedExpressions() {
 }
 
 export async function getExpressionsList({ filterAvailable = false } = {}) {
+    if (extension_settings.expressions.api !== EXPRESSION_API.none) extension_settings.expressions.api = EXPRESSION_API.llm;
     // If there is no cached list, load and cache it
     if (!Array.isArray(expressionsList)) {
         expressionsList = await resolveExpressionsList();
@@ -1461,8 +1261,7 @@ export async function getExpressionsList({ filterAvailable = false } = {}) {
 
     const expressions = getCachedExpressions();
 
-    // Filtering is only available for llm and webllm APIs
-    if (!filterAvailable || ![EXPRESSION_API.llm, EXPRESSION_API.webllm].includes(extension_settings.expressions.api)) {
+    if (!filterAvailable || extension_settings.expressions.api !== EXPRESSION_API.llm) {
         return expressions;
     }
 
@@ -1480,43 +1279,6 @@ export async function getExpressionsList({ filterAvailable = false } = {}) {
      * @returns {Promise<string[]>}
      */
     async function resolveExpressionsList() {
-        // See if we can retrieve a specific expression list from the API
-        try {
-            // Check Extras api first, if enabled and that module active
-            if (extension_settings.expressions.api == EXPRESSION_API.extras && modules.includes('classify')) {
-                const url = new URL(getApiUrl());
-                url.pathname = '/api/classify/labels';
-
-                const apiResult = await doExtrasFetch(url, {
-                    method: 'GET',
-                    headers: { 'Bypass-Tunnel-Reminder': 'bypass' },
-                });
-
-                if (apiResult.ok) {
-                    const data = await apiResult.json();
-                    expressionsList = data.labels;
-                    return expressionsList;
-                }
-            }
-
-            // If running the local classify model (not using the LLM), we ask that one
-            if (extension_settings.expressions.api == EXPRESSION_API.local) {
-                const apiResult = await fetch('/api/extra/classify/labels', {
-                    method: 'POST',
-                    headers: getRequestHeaders({ omitContentType: true }),
-                });
-
-                if (apiResult.ok) {
-                    const data = await apiResult.json();
-                    expressionsList = data.labels;
-                    return expressionsList;
-                }
-            }
-        } catch (error) {
-            console.log(error);
-        }
-
-        // If there was no specific list, or an error, just return the default expressions
         expressionsList = DEFAULT_EXPRESSIONS.slice();
         return expressionsList;
     }
@@ -1830,7 +1592,7 @@ function onExpressionApiChanged() {
     const tempApi = this.value;
     if (tempApi) {
         extension_settings.expressions.api = Number(tempApi);
-        $('.expression_llm_prompt_block').toggle([EXPRESSION_API.llm, EXPRESSION_API.webllm].includes(extension_settings.expressions.api));
+        $('.expression_llm_prompt_block').toggle(extension_settings.expressions.api === EXPRESSION_API.llm);
         $('.expression_prompt_type_block').toggle(extension_settings.expressions.api === EXPRESSION_API.llm);
         expressionsList = null;
         spriteCache = {};
@@ -2223,7 +1985,7 @@ function migrateSettings() {
 
     if (Object.keys(extension_settings.expressions).includes('local')) {
         if (extension_settings.expressions.local) {
-            extension_settings.expressions.api = EXPRESSION_API.local;
+            extension_settings.expressions.api = EXPRESSION_API.llm;
         }
 
         delete extension_settings.expressions.local;
@@ -2304,8 +2066,9 @@ export async function init() {
         $('#open_chat_expressions').hide();
 
         await renderAdditionalExpressionSettings();
-        $('#expression_api').val(extension_settings.expressions.api ?? EXPRESSION_API.none);
-        $('.expression_llm_prompt_block').toggle([EXPRESSION_API.llm, EXPRESSION_API.webllm].includes(extension_settings.expressions.api));
+        if (extension_settings.expressions.api !== EXPRESSION_API.none) extension_settings.expressions.api = EXPRESSION_API.llm;
+        $('#expression_api').empty().append(new Option('Disabled', EXPRESSION_API.none), new Option('Nimi text.decide', EXPRESSION_API.llm)).val(extension_settings.expressions.api);
+        $('.expression_llm_prompt_block').toggle(extension_settings.expressions.api === EXPRESSION_API.llm);
         $('#expression_llm_prompt').val(extension_settings.expressions.llmPrompt ?? '');
         $('#expression_llm_prompt').on('input', function () {
             extension_settings.expressions.llmPrompt = String($(this).val());

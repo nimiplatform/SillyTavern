@@ -1,0 +1,8 @@
+@import "@nimiplatform/kit/ui/styles.css";
+@import "@nimiplatform/kit/ui/themes/dark.css";
+@import "@nimiplatform/kit/ui/themes/nimi-accent.css";
+@import "tailwindcss";
+@source "../../../node_modules/@nimiplatform/kit/dist/**/*.{js,mjs}";
+
+#nimi-ai-config { min-height: 420px; text-align: left; }
+#nimi-ai-status { white-space: normal; }

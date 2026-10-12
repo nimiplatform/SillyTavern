@@ -95,10 +95,14 @@
         "ws": "^8.18.3",
         "yaml": "^2.8.3",
         "yargs": "^17.7.1",
-        "yauzl": "^3.2.1"
+        "yauzl": "^3.2.1",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
+        "@nimiplatform/sdk": "^0.21.0",
+        "@nimiplatform/kit": "^0.19.0"
     },
     "engines": {
-        "node": ">= 20"
+        "node": ">=24"
     },
     "overrides": {
         "vectra": {
@@ -115,20 +119,32 @@
         "type": "git",
         "url": "https://github.com/SillyTavern/SillyTavern.git"
     },
-    "version": "1.19.0",
+    "version": "1.19.2",
     "scripts": {
         "init": "node src/server-init.js",
         "start": "node server.js",
         "debug": "node --inspect server.js",
         "start:global": "node server.js --global",
-        "start:electron": "cd ./src/electron && npm run start",
+        "start:electron": "nimi-app dev --shell electron",
         "start:deno": "deno run --allow-run --allow-net --allow-read --allow-write --allow-sys --allow-env server.js",
         "start:bun": "bun server.js",
         "start:no-csrf": "node server.js --disableCsrf",
         "lint": "eslint \"src/**/*.js\" \"public/**/*.js\" ./*.js",
         "lint:fix": "eslint \"src/**/*.js\" \"public/**/*.js\" ./*.js --fix",
         "plugins:update": "node plugins update",
-        "plugins:install": "node plugins install"
+        "plugins:install": "node plugins install",
+        "postinstall": "install-electron --no",
+        "dev:renderer": "node scripts/nimi-dev-renderer.mjs",
+        "build:nimi-renderer": "node scripts/nimi-build-renderer.mjs",
+        "build:electron": "node scripts/nimi-build-electron.mjs",
+        "build": "pnpm run build:nimi-renderer && pnpm run build:electron",
+        "build:electron:production": "pnpm run build && node scripts/nimi-package-electron.mjs",
+        "test:app": "pnpm --dir tests run test:unit",
+        "dev": "nimi-app dev --shell electron",
+        "dev:shell": "nimi-app dev",
+        "dev:electron": "nimi-app dev --shell electron",
+        "sync": "nimi-app sync",
+        "pack": "nimi-app pack"
     },
     "bin": {
         "sillytavern": "./src/server-global.js"
@@ -137,7 +153,7 @@
         "no-path-concat": "off",
         "no-var": "off"
     },
-    "main": "server.js",
+    "main": "dist-electron/main.js",
     "devDependencies": {
         "@chevrotain/types": "^11.2.0",
         "@types/archiver": "^6.0.3",
@@ -170,6 +186,15 @@
         "eslint-plugin-jest": "^27.9.0",
         "eslint-plugin-jsdoc": "^48.10.0",
         "eslint-plugin-playwright": "^2.3.0",
-        "typescript": "^5.9.3"
-    }
+        "typescript": "^5.9.3",
+        "electron": "^44.5.1",
+        "esbuild": "^0.28.2",
+        "@tailwindcss/cli": "^4.3.3",
+        "tailwindcss": "^4.3.3",
+        "@electron/packager": "^20.3.0",
+        "@nimiplatform/app-tools": "^0.12.0",
+        "@nimiplatform/nimi-coding": "0.6.5"
+    },
+    "packageManager": "pnpm@10.34.5",
+    "private": true
 }

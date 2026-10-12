@@ -102,7 +102,21 @@ https.globalAgent = new https.Agent({ keepAlive: cliArgs.enableKeepAlive });
 
 const app = express();
 app.use(helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ['\'self\''],
+            // Existing ST Handlebars templates compile at runtime.
+            scriptSrc: ['\'self\'', '\'unsafe-inline\'', '\'unsafe-eval\'', '\'wasm-unsafe-eval\''],
+            styleSrc: ['\'self\'', '\'unsafe-inline\''],
+            imgSrc: ['\'self\'', 'data:', 'blob:', 'https:'],
+            mediaSrc: ['\'self\'', 'data:', 'blob:', 'nimi-app-asset:'],
+            connectSrc: ['\'self\'', 'data:', 'blob:', 'nimi-app-asset:'],
+            workerSrc: ['\'self\'', 'blob:'],
+            objectSrc: ['\'none\''],
+            formAction: ['\'self\'', 'javascript:'],
+            upgradeInsecureRequests: null,
+        },
+    },
 }));
 app.use(compression());
 app.use(responseTime());

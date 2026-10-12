@@ -1,0 +1,34 @@
+app_id: org.nimiplatform.sillytavern
+display_name: SillyTavern
+version: 1.19.2
+profile: standalone
+manifest_role: submitted-input
+app_access:
+  - runtime.consume
+  - integration.consume
+capability_contract_refs:
+  - text.generate
+  - text.embed
+  - image.generate
+  - audio.synthesize
+  - audio.transcribe
+  - text.decide
+required_standardized_feature_refs: []
+storage_policy:
+  kind: app-owned-os-storage
+  os_storage_disclosure:
+    - path_pattern: ~/Library/Application Support/SillyTavern-Nimi
+      purpose: Character cards, Persona, chats, world books, settings, media, backups and retrieval indexes. Shared between development and local installation; independent of Nimi accounts.
+      expected_size_band: User-controlled; megabytes for text, potentially multiple gigabytes for media and indexes.
+    - path_pattern: "%APPDATA%/SillyTavern-Nimi"
+      purpose: Windows business data root; implementation declared, Windows acceptance NOT-VERIFIED.
+      expected_size_band: User-controlled; megabytes to multiple gigabytes.
+metadata:
+  summary: Character chats, Persona, world books, tools, retrieval and media with Nimi AI.
+  icon: public/img/apple-icon-512x512.png
+  readme: README.md
+  author: SillyTavern contributors
+local_development:
+  electron:
+    renderer_origin: http://127.0.0.1:1476
+    host_source_directory: src/electron

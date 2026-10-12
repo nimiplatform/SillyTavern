@@ -1,11 +1,9 @@
+import { captionNimiMedia } from '../../nimi/media.js';
+import { captureNimiScope, assertNimiScope, nimiSupports } from '../../nimi/platform.bundle.js';
 import { ensureImageFormatSupported, getBase64Async, getFileExtension, isTrueBoolean, saveBase64AsFile } from '../../utils.js';
-import { getContext, getApiUrl, doExtrasFetch, extension_settings, modules, renderExtensionTemplateAsync } from '../../extensions.js';
-import { appendMediaToMessage, chat_metadata, eventSource, event_types, getRequestHeaders, saveChatConditional, saveSettingsDebounced, substituteParams } from '../../../script.js';
+import { getContext, extension_settings, renderExtensionTemplateAsync } from '../../extensions.js';
+import { appendMediaToMessage, chat_metadata, eventSource, event_types, saveChatConditional, saveSettingsDebounced, substituteParams } from '../../../script.js';
 import { getMessageTimeStamp } from '../../RossAscends-mods.js';
-import { SECRET_KEYS, secret_state } from '../../secrets.js';
-import { oai_settings, POLLINATIONS_ENDPOINT } from '../../openai.js';
-import { getMultimodalCaption } from '../shared.js';
-import { textgen_types, textgenerationwebui_settings } from '../../textgen-settings.js';
 import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../slash-commands/SlashCommandArgument.js';
@@ -144,7 +142,7 @@ async function captionExistingMessage(message, mediaIndex) {
 
     const mediaAttachment = message.extra.media[mediaIndex];
 
-    if (!mediaAttachment || !mediaAttachment.url || mediaAttachment.type === MEDIA_TYPE.AUDIO) {
+    if (!mediaAttachment || !mediaAttachment.url) {
         return;
     }
 
@@ -152,11 +150,16 @@ async function captionExistingMessage(message, mediaIndex) {
         throw new Error('Captioning videos is not supported for the current source.');
     }
 
+    const scope = captureNimiScope();
     const imageData = await fetch(mediaAttachment.url);
     const blob = await imageData.blob();
     const fileName = mediaAttachment.url.split('/').pop().split('?')[0] || 'image.jpg';
     const file = new File([blob], fileName, { type: blob.type });
-    const caption = await getCaptionForFile(file, null, true);
+    const result = await getCaptionForFile(file, null, true);
+    const caption = result.caption;
+    assertNimiScope(scope);
+    message.extra.nimi_caption ??= {};
+    message.extra.nimi_caption[mediaIndex] = result.nimiMedia;
 
     if (!caption) {
         console.warn('Failed to generate a caption for the image.');
@@ -187,8 +190,9 @@ async function captionExistingMessage(message, mediaIndex) {
  * @param {string} mimeType Image MIME type
  * @returns {Promise<void>}
  */
-async function sendCaptionedMessage(caption, image, mimeType) {
+async function sendCaptionedMessage(caption, image, mimeType, nimiMedia, scope) {
     const messageText = await wrapCaptionTemplate(caption);
+    assertNimiScope(scope);
 
     const context = getContext();
 
@@ -211,6 +215,7 @@ async function sendCaptionedMessage(caption, image, mimeType) {
             media_display: MEDIA_DISPLAY.GALLERY,
             media_index: 0,
             inline_image: !!extension_settings.caption.show_in_chat,
+            nimi_caption: { 0: nimiMedia },
         },
     };
     chat_metadata.tainted = true;
@@ -230,90 +235,7 @@ async function sendCaptionedMessage(caption, image, mimeType) {
  * @param {string} externalPrompt Caption prompt
  * @returns {Promise<{caption: string}>} Generated caption
  */
-async function doCaptionRequest(base64Img, fileData, externalPrompt) {
-    switch (extension_settings.caption.source) {
-        case 'local':
-            return await captionLocal(base64Img);
-        case 'extras':
-            return await captionExtras(base64Img);
-        case 'horde':
-            return await captionHorde(base64Img);
-        case 'multimodal':
-            return await captionMultimodal(fileData, externalPrompt);
-        default:
-            throw new Error('Unknown caption source.');
-    }
-}
-
-/**
- * Generates a caption for an image using Extras API.
- * @param {string} base64Img Base64 encoded image without the data:image/...;base64, prefix
- * @returns {Promise<{caption: string}>} Generated caption
- */
-async function captionExtras(base64Img) {
-    if (!modules.includes('caption')) {
-        throw new Error('No captioning module is available.');
-    }
-
-    const url = new URL(getApiUrl());
-    url.pathname = '/api/caption';
-
-    const apiResult = await doExtrasFetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Bypass-Tunnel-Reminder': 'bypass',
-        },
-        body: JSON.stringify({ image: base64Img }),
-    });
-
-    if (!apiResult.ok) {
-        throw new Error('Failed to caption image via Extras.');
-    }
-
-    const data = await apiResult.json();
-    return data;
-}
-
-/**
- * Generates a caption for an image using a local model.
- * @param {string} base64Img Base64 encoded image without the data:image/...;base64, prefix
- * @returns {Promise<{caption: string}>} Generated caption
- */
-async function captionLocal(base64Img) {
-    const apiResult = await fetch('/api/extra/caption', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ image: base64Img }),
-    });
-
-    if (!apiResult.ok) {
-        throw new Error('Failed to caption image via local pipeline.');
-    }
-
-    const data = await apiResult.json();
-    return data;
-}
-
-/**
- * Generates a caption for an image using a Horde model.
- * @param {string} base64Img Base64 encoded image without the data:image/...;base64, prefix
- * @returns {Promise<{caption: string}>} Generated caption
- */
-async function captionHorde(base64Img) {
-    const apiResult = await fetch('/api/horde/caption-image', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ image: base64Img }),
-    });
-
-    if (!apiResult.ok) {
-        throw new Error('Failed to caption image via Horde.');
-    }
-
-    const data = await apiResult.json();
-    return data;
-}
+async function doCaptionRequest(base64Img, fileData, externalPrompt) { return captionMultimodal(fileData, externalPrompt); }
 
 /**
  * Generates a caption for an image using a multimodal model.
@@ -334,8 +256,7 @@ async function captionMultimodal(base64Img, externalPrompt) {
 
     prompt = substituteParams(prompt);
 
-    const caption = await getMultimodalCaption(base64Img, prompt);
-    return { caption };
+    return captionNimiMedia(base64Img, prompt);
 }
 
 /**
@@ -358,7 +279,7 @@ async function onSelectImage(e, prompt, quiet) {
         return '';
     }
 
-    const caption = await getCaptionForFile(file, prompt, quiet);
+    const { caption } = await getCaptionForFile(file, prompt, quiet);
     form && form.reset();
     return caption;
 }
@@ -371,6 +292,7 @@ async function onSelectImage(e, prompt, quiet) {
  * @returns {Promise<string>} Generated caption
  */
 async function getCaptionForFile(file, prompt, quiet) {
+    const scope = captureNimiScope();
     try {
         if (file.type.startsWith('video/') && !isVideoCaptioningAvailable()) {
             throw new Error('Video captioning is not available for the current source.');
@@ -381,17 +303,20 @@ async function getCaptionForFile(file, prompt, quiet) {
         const fileData = await getBase64Async(await ensureImageFormatSupported(file));
         const extension = getFileExtension(file);
         const base64Data = fileData.split(',')[1];
-        const { caption } = await doCaptionRequest(base64Data, fileData, prompt);
+        const result = await doCaptionRequest(base64Data, fileData, prompt);
+        const { caption, nimiMedia } = result;
+        assertNimiScope(scope);
         if (!quiet) {
             const imagePath = await saveBase64AsFile(base64Data, context.name2, '', extension);
-            await sendCaptionedMessage(caption, imagePath, file.type);
+            assertNimiScope(scope);
+            await sendCaptionedMessage(caption, imagePath, file.type, nimiMedia, scope);
         }
-        return caption;
+        return result;
     } catch (error) {
         const errorMessage = error.message || 'Unknown error';
         toastr.error(errorMessage, 'Failed to caption');
         console.error(error);
-        return '';
+        return { caption: '' };
     } finally {
         setImageIcon();
     }
@@ -422,10 +347,6 @@ async function captionCommandCallback(args, prompt) {
                     toastr.error('The specified message does not contain an image.');
                     return '';
                 }
-                if (mediaAttachment.type === MEDIA_TYPE.AUDIO) {
-                    toastr.error('The specified media is an audio file. Captioning audio files is not supported.');
-                    return '';
-                }
                 if (mediaAttachment.type === MEDIA_TYPE.VIDEO && !isVideoCaptioningAvailable()) {
                     toastr.error('The specified media is a video. Captioning videos is not supported for the current source.');
                     return '';
@@ -434,7 +355,7 @@ async function captionCommandCallback(args, prompt) {
                 const blob = await fetchResult.blob();
                 const fileName = mediaAttachment.url.split('/').pop().split('?')[0] || 'image.jpg';
                 const file = new File([blob], fileName, { type: blob.type });
-                return await getCaptionForFile(file, prompt, quiet);
+                return (await getCaptionForFile(file, prompt, quiet)).caption;
             } catch (error) {
                 toastr.error('Failed to get image from the message. Make sure the image is accessible.');
                 return '';
@@ -445,7 +366,7 @@ async function captionCommandCallback(args, prompt) {
     return new Promise(resolve => {
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = 'image/*,video/*';
+        input.accept = 'image/*,video/mp4,audio/wav,audio/mpeg';
         input.onchange = async (e) => {
             const caption = await onSelectImage(e, prompt, quiet);
             resolve(caption);
@@ -460,11 +381,7 @@ async function captionCommandCallback(args, prompt) {
  * @returns {boolean} True if video captioning is supported for the current source.
  */
 function isVideoCaptioningAvailable() {
-    if (extension_settings.caption.source !== 'multimodal') {
-        return false;
-    }
-
-    return ['google', 'vertexai', 'zai'].includes(extension_settings.caption.multimodal_api);
+    return nimiSupports('input.video');
 }
 
 export async function init() {
@@ -477,83 +394,6 @@ export async function init() {
 
         $('#caption_wand_container').append(sendButton);
         $(sendButton).on('click', () => {
-            const hasCaptionModule = (() => {
-                const settings = extension_settings.caption;
-
-                // Handle non-multimodal sources
-                if (settings.source === 'extras' && modules.includes('caption')) return true;
-                if (settings.source === 'local' || settings.source === 'horde') return true;
-
-                // Handle multimodal sources
-                if (settings.source === 'multimodal') {
-                    const api = settings.multimodal_api;
-                    const altEndpointEnabled = settings.alt_endpoint_enabled;
-                    const altEndpointUrl = settings.alt_endpoint_url;
-
-                    // APIs that support reverse proxy
-                    const reverseProxyApis = {
-                        'openai': SECRET_KEYS.OPENAI,
-                        'mistral': SECRET_KEYS.MISTRALAI,
-                        'google': SECRET_KEYS.MAKERSUITE,
-                        'vertexai': SECRET_KEYS.VERTEXAI,
-                        'anthropic': SECRET_KEYS.CLAUDE,
-                        'xai': SECRET_KEYS.XAI,
-                        'zai': SECRET_KEYS.ZAI,
-                        'moonshot': SECRET_KEYS.MOONSHOT,
-                    };
-
-                    if (reverseProxyApis[api]) {
-                        if (secret_state[reverseProxyApis[api]] || settings.allow_reverse_proxy) {
-                            return true;
-                        }
-                    }
-
-                    const chatCompletionApis = {
-                        'openrouter': SECRET_KEYS.OPENROUTER,
-                        'groq': SECRET_KEYS.GROQ,
-                        'cohere': SECRET_KEYS.COHERE,
-                        'aimlapi': SECRET_KEYS.AIMLAPI,
-                        'nanogpt': SECRET_KEYS.NANOGPT,
-                        'chutes': SECRET_KEYS.CHUTES,
-                        'electronhub': SECRET_KEYS.ELECTRONHUB,
-                        'pollinations': SECRET_KEYS.POLLINATIONS,
-                        'workers_ai': SECRET_KEYS.WORKERS_AI,
-                    };
-
-                    if (chatCompletionApis[api] && secret_state[chatCompletionApis[api]]) {
-                        return true;
-                    }
-
-                    const textCompletionApis = {
-                        'ollama': textgen_types.OLLAMA,
-                        'llamacpp': textgen_types.LLAMACPP,
-                        'ooba': textgen_types.OOBA,
-                        'koboldcpp': textgen_types.KOBOLDCPP,
-                        'vllm': textgen_types.VLLM,
-                    };
-
-                    if (textCompletionApis[api] && altEndpointEnabled && altEndpointUrl) {
-                        return true;
-                    }
-
-                    if (textCompletionApis[api] && !altEndpointEnabled && textgenerationwebui_settings.server_urls[textCompletionApis[api]]) {
-                        return true;
-                    }
-
-                    // Custom API and anonymous Pollinations don't need additional checks
-                    if (api === 'custom' || (api === 'pollinations' && oai_settings.pollinations_endpoint === POLLINATIONS_ENDPOINT.ANONYMOUS)) {
-                        return true;
-                    }
-                }
-
-                return false;
-            })();
-
-            if (!hasCaptionModule) {
-                toastr.error('Choose other captioning source in the extension settings.', 'Captioning is not available');
-                return;
-            }
-
             $('#img_file').trigger('click');
         });
     }
@@ -561,7 +401,7 @@ export async function init() {
         const imgInput = document.createElement('input');
         imgInput.type = 'file';
         imgInput.id = 'img_file';
-        imgInput.accept = 'image/*,video/*';
+        imgInput.accept = 'image/*,video/mp4,audio/wav,audio/mpeg';
         imgInput.hidden = true;
         imgInput.addEventListener('change', (e) => onSelectImage(e, '', false));
         const imgForm = document.createElement('form');
@@ -570,72 +410,13 @@ export async function init() {
         imgForm.hidden = true;
         $('#form_sheld').append(imgForm);
     }
-    async function switchMultimodalBlocks() {
-        await addRemoteEndpointModels();
-        const isMultimodal = extension_settings.caption.source === 'multimodal';
-        if (!extension_settings.caption.multimodal_model) {
-            const dropdown = $('#caption_multimodal_model');
-            const options = dropdown.find(`option[data-type="${extension_settings.caption.multimodal_api}"]`);
-            extension_settings.caption.multimodal_model = String(options.first().val());
-        }
-        $('#caption_multimodal_block').toggle(isMultimodal);
-        $('#caption_prompt_block').toggle(isMultimodal);
-        $('#caption_multimodal_api').val(extension_settings.caption.multimodal_api);
-        $('#caption_multimodal_model').val(extension_settings.caption.multimodal_model);
-        $('#caption_multimodal_block [data-type]').each(function () {
-            const type = $(this).data('type');
-            const types = type.split(',');
-            $(this).toggle(types.includes(extension_settings.caption.multimodal_api));
-        });
+    function switchMultimodalBlocks() {
+        $('#caption_multimodal_block').hide();
+        $('#caption_prompt_block').show();
     }
     async function addSettings() {
         const html = await renderExtensionTemplateAsync('caption', 'settings', { TEMPLATE_DEFAULT, PROMPT_DEFAULT });
         $('#caption_container').append(html);
-    }
-
-    async function addRemoteEndpointModels() {
-        async function processEndpoint(api, url, additionalParams = {}) {
-            const dropdown = document.getElementById('caption_multimodal_model');
-            if (!(dropdown instanceof HTMLSelectElement)) {
-                return;
-            }
-            if (extension_settings.caption.source !== 'multimodal' || extension_settings.caption.multimodal_api !== api) {
-                return;
-            }
-            const options = Array.from(dropdown.options);
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify(additionalParams),
-            });
-            if (!response.ok) {
-                return;
-            }
-            const modelIds = await response.json();
-            if (Array.isArray(modelIds) && modelIds.length > 0) {
-                modelIds.sort().forEach((modelId) => {
-                    if (!modelId || typeof modelId !== 'string' || options.some(o => o.value === modelId && o.dataset.type === api)) {
-                        return;
-                    }
-                    const option = document.createElement('option');
-                    option.value = modelId;
-                    option.textContent = modelId;
-                    option.dataset.type = api;
-                    dropdown.add(option);
-                });
-            }
-        }
-
-        await processEndpoint('openrouter', '/api/openrouter/models/multimodal');
-        await processEndpoint('aimlapi', '/api/backends/chat-completions/multimodal-models/aimlapi');
-        await processEndpoint('pollinations', '/api/backends/chat-completions/multimodal-models/pollinations');
-        await processEndpoint('nanogpt', '/api/backends/chat-completions/multimodal-models/nanogpt');
-        await processEndpoint('chutes', '/api/backends/chat-completions/multimodal-models/chutes');
-        await processEndpoint('electronhub', '/api/backends/chat-completions/multimodal-models/electronhub');
-        await processEndpoint('mistral', '/api/backends/chat-completions/multimodal-models/mistral');
-        await processEndpoint('xai', '/api/backends/chat-completions/multimodal-models/xai');
-        await processEndpoint('moonshot', '/api/backends/chat-completions/multimodal-models/moonshot');
-        await processEndpoint('workers_ai', '/api/backends/chat-completions/multimodal-models/workers_ai', { workers_ai_account_id: oai_settings.workers_ai_account_id });
     }
 
     await addSettings();
@@ -649,6 +430,11 @@ export async function init() {
     $('#caption_allow_reverse_proxy').prop('checked', !!(extension_settings.caption.allow_reverse_proxy));
     $('#caption_prompt_ask').prop('checked', !!(extension_settings.caption.prompt_ask));
     $('#caption_auto_mode').prop('checked', !!(extension_settings.caption.auto_mode));
+    extension_settings.caption.source = 'multimodal';
+    extension_settings.caption.multimodal_api = 'nimi';
+    $('#caption_source').empty().append(new Option('Nimi media description', 'multimodal'));
+    $('#caption_multimodal_api').empty().append(new Option('Nimi text.generate', 'nimi'));
+    $('#caption_multimodal_model').prop('disabled', true).attr('title', 'Choose the text resource in Nimi AI settings.');
     $('#caption_source').val(extension_settings.caption.source);
     $('#caption_prompt').val(extension_settings.caption.prompt);
     $('#caption_template').val(extension_settings.caption.template);
@@ -677,14 +463,6 @@ export async function init() {
     $('#caption_auto_mode').on('input', () => {
         extension_settings.caption.auto_mode = !!$('#caption_auto_mode').prop('checked');
         saveSettingsDebounced();
-    });
-    $('#caption_ollama_pull').on('click', (e) => {
-        const selectedModel = extension_settings.caption.multimodal_model;
-        const staticModels = { 'ollama_current': textgenerationwebui_settings.ollama_model, 'ollama_custom': extension_settings.caption.ollama_custom_model };
-        const presetModel = staticModels[selectedModel] || selectedModel;
-        e.preventDefault();
-        $('#ollama_download_model').trigger('click');
-        $('.popup .popup-input').val(presetModel);
     });
     $('#caption_multimodal_api').on('change', async () => {
         const api = String($('#caption_multimodal_api').val());

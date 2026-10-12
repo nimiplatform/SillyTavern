@@ -74,6 +74,7 @@ img.expression {
     object-fit: contain;
 }
 
+img.expression:not([src]),
 img.expression[src=""] {
     visibility: hidden;
 }

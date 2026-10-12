@@ -1,3 +1,5 @@
+import { assertNimiScope, captureNimiScope, cancelNimiWork } from './scripts/nimi/platform.bundle.js';
+import { attachReceipt, attachCandidateReceipts, nimiFailureDetails } from './scripts/nimi/history.js';
 import {
     showdown,
     moment,
@@ -787,6 +789,8 @@ async function firstLoadInit() {
     await eventSource.emit(event_types.APP_INITIALIZED);
     await initLoaderHandle.hide();
     await fixViewport();
+    const { initNimiIntegration } = await import('./scripts/nimi/integration.js');
+    initNimiIntegration();
     await eventSource.emit(event_types.APP_READY);
 }
 
@@ -1982,7 +1986,7 @@ export function messageFormatting(mes, ch_name, isSystem, isUser, messageId, san
 export function createModelIcon(apiName, modelName = '') {
     const image = new Image();
     image.classList.add('icon-svg');
-    image.src = `/img/${apiName}.svg`;
+    image.src = `/img/${apiName === 'nimi' ? 'generic' : apiName}.svg`;
     image.title = modelName ? `${apiName} - ${modelName}` : apiName;
     return image;
 }
@@ -3078,10 +3082,11 @@ export function getStoppingStrings(isImpersonate, isContinue, api = main_api) {
  * @prop {object} [jsonSchema] JSON schema to use for the structured generation. Usually requires a special instruction.
  * @prop {boolean} [removeReasoning] Parses and removes the reasoning block according to reasoning format preferences
  * @prop {boolean} [trimToSentence] Whether to trim the response to the last complete sentence
+ * @prop {function(object): void} [onNimiResult] Receives the complete canonical Nimi result for business persistence.
  * @param {GenerateQuietPromptParams} params Parameters for the quiet prompt generation
  * @returns {Promise<string>} Generated text. If using structured output, will contain a serialized JSON object.
  */
-export async function generateQuietPrompt({ quietPrompt = '', quietToLoud = false, skipWIAN = false, quietImage = null, quietName = null, responseLength = null, forceChId = null, jsonSchema = null, removeReasoning = true, trimToSentence = false } = {}) {
+export async function generateQuietPrompt({ quietPrompt = '', quietToLoud = false, skipWIAN = false, quietImage = null, quietName = null, responseLength = null, forceChId = null, jsonSchema = null, removeReasoning = true, trimToSentence = false, onNimiResult = null } = {}) {
     if (arguments.length > 0 && typeof arguments[0] !== 'object') {
         console.trace('generateQuietPrompt called with positional arguments. Please use an object instead.');
         [quietPrompt, quietToLoud, skipWIAN, quietImage, quietName, responseLength, forceChId, jsonSchema] = arguments;
@@ -3100,6 +3105,7 @@ export async function generateQuietPrompt({ quietPrompt = '', quietToLoud = fals
             quietName: quietName ?? null,
             force_chid: forceChId ?? null,
             jsonSchema: jsonSchema ?? null,
+            onNimiResult,
         };
         if (responseLengthCustomized) {
             TempResponseLength.save(main_api, responseLength);
@@ -3630,6 +3636,7 @@ class StreamingProcessor {
             this.sendTextarea.value = '';
             this.sendTextarea.dispatchEvent(new Event('input', { bubbles: true }));
         } else {
+            this.nimiPreviousReceipt = chat.at(-1)?.extra?.nimi;
             await saveReply({ type: this.type, getMessage: text, fromStreaming: true });
             messageId = chat.length - 1;
             await this.#checkDomElements(messageId, continueOnReasoning);
@@ -3641,6 +3648,7 @@ class StreamingProcessor {
     }
 
     async onProgressStreaming(messageId, text, isFinal) {
+        if (this.nimiScope) assertNimiScope(this.nimiScope);
         const isImpersonate = this.type == 'impersonate';
         const isContinue = this.type == 'continue';
 
@@ -3756,6 +3764,10 @@ class StreamingProcessor {
         await this.onProgressStreaming(messageId, text, true);
         const messageElement = chatElement.find(`.mes[mesid="${messageId}"]`);
         const message = chat[messageId];
+        if (this.nimi) {
+            assertNimiScope(this.nimi.scope);
+            attachReceipt(message, this.nimi, { continuation: this.type === 'continue', previousText: this.continueMessage, previousReceipt: this.nimiPreviousReceipt });
+        }
         addCopyToCodeBlocks(messageElement);
 
         await this.reasoningHandler.finish(messageId);
@@ -3777,6 +3789,7 @@ class StreamingProcessor {
             message.swipe_info.push(...swipeInfoArray);
         }
 
+        attachCandidateReceipts(message, this.nimiCandidates);
         syncMesToSwipe(messageId);
         saveLogprobsForActiveMessage(this.messageLogprobs.filter(Boolean), this.continueMessage);
 
@@ -3823,6 +3836,7 @@ class StreamingProcessor {
 
         this.markUIGenStopped();
 
+        if (this.nimiScope) return;
         const noEmitTypes = ['swipe', 'impersonate', 'continue'];
         if (!noEmitTypes.includes(this.type)) {
             eventSource.emit(event_types.MESSAGE_RECEIVED, this.messageId, this.type);
@@ -3882,6 +3896,9 @@ class StreamingProcessor {
                     return this.result;
                 }
 
+                if (state?.nimiScope) assertNimiScope(state.nimiScope);
+                this.nimi = state?.nimi || this.nimi;
+                this.nimiCandidates = state?.nimiCandidates || this.nimiCandidates;
                 this.toolCalls = toolCalls;
                 this.result = text;
                 this.swipes = Array.from(swipes ?? []);
@@ -3900,8 +3917,15 @@ class StreamingProcessor {
         } catch (err) {
             // in the case of a self-inflicted abort, we have already cleaned up
             if (!this.isFinished) {
+                try { if (this.nimiScope) assertNimiScope(this.nimiScope); } catch { this.abortController.abort(); this.isStopped = true; return this.result; }
                 console.error(err);
+                const message = chat[this.messageId];
+                if (message) {
+                    message.extra ??= {};
+                    message.extra.nimi_failure = nimiFailureDetails(err);
+                }
                 this.onErrorStreaming();
+                throw err;
             }
             return this.result;
         }
@@ -3988,6 +4012,7 @@ export function createRawPrompt(prompt, api, instructOverride, quietToLoud, syst
  * @prop {number} [responseLength] Maximum response length. If unset, the global default value is used.
  * @prop {boolean} [trimNames] Whether to allow trimming "{{user}}:" and "{{char}}:" from the response.
  * @prop {string} [prefill] An optional prefill for the prompt.
+ * @prop {function(object): void} [onNimiResult] Receives the complete canonical Nimi result for business persistence.
  * @prop {JsonSchema} [jsonSchema] JSON schema to use for the structured generation. Usually requires a special instruction.
  */
 
@@ -3997,10 +4022,12 @@ export function createRawPrompt(prompt, api, instructOverride, quietToLoud, syst
  * @param {GenerateRawParams} params Parameters for generating a message
  * @returns {Promise<object | string>} Raw API response data, or a JSON string extracted from the response when `jsonSchema` is provided.
  */
-export async function generateRawData({ prompt = '', api = null, instructOverride = false, quietToLoud = false, systemPrompt = '', responseLength = null, prefill = '', jsonSchema = null } = {}) {
+export async function generateRawData({ prompt = '', api = null, instructOverride = false, quietToLoud = false, systemPrompt = '', responseLength = null, prefill = '', jsonSchema = null, onNimiResult = null } = {}) {
     if (!api) {
         api = main_api;
     }
+    if (api !== 'openai') throw new Error('Provider inference has retired. Use the configured Nimi text capability.');
+    if (prefill) throw new Error('Exact raw completion prefill is not yet admitted by this Nimi text workflow.');
 
     const abortController = new AbortController();
     const responseLengthCustomized = typeof responseLength === 'number' && responseLength > 0;
@@ -4099,6 +4126,7 @@ export async function generateRawData({ prompt = '', api = null, instructOverrid
             throw new Error(data.response);
         }
 
+        if (data.nimi) onNimiResult?.(data.nimi);
         if (jsonSchema) {
             return extractJsonFromData(data, { mainApi: api, returnInvalidJson: jsonSchema.returnInvalid });
         }
@@ -4119,13 +4147,13 @@ export async function generateRawData({ prompt = '', api = null, instructOverrid
  * @param {GenerateRawParams} params Parameters for generating a message
  * @returns {Promise<string>} Generated output: a cleaned-up message string when `jsonSchema` is not provided, or an extracted JSON string conforming to `jsonSchema` when it is.
  */
-export async function generateRaw({ prompt = '', api = null, instructOverride = false, quietToLoud = false, systemPrompt = '', responseLength = null, trimNames = true, prefill = '', jsonSchema = null } = {}) {
+export async function generateRaw({ prompt = '', api = null, instructOverride = false, quietToLoud = false, systemPrompt = '', responseLength = null, trimNames = true, prefill = '', jsonSchema = null, onNimiResult = null } = {}) {
     if (arguments.length > 0 && typeof arguments[0] !== 'object') {
         console.trace('generateRaw called with positional arguments. Please use an object instead.');
         [prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, trimNames, prefill, jsonSchema] = arguments;
     }
 
-    const data = await generateRawData({ prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, prefill, jsonSchema });
+    const data = await generateRawData({ prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, prefill, jsonSchema, onNimiResult });
 
     // JSON string (matching the provided schema) will already be extracted.
     if (jsonSchema) {
@@ -4152,6 +4180,7 @@ export async function generateRaw({ prompt = '', api = null, instructOverride = 
 
 class TempResponseLength {
     static #originalResponseLength = -1;
+    static #originalNimiMaxTokensOverride = false;
     static #lastApi = null;
 
     static isCustomized() {
@@ -4166,7 +4195,9 @@ class TempResponseLength {
     static save(api, responseLength) {
         if (api === 'openai') {
             this.#originalResponseLength = oai_settings.openai_max_tokens;
+            this.#originalNimiMaxTokensOverride = oai_settings.nimi_parameter_overrides.max_tokens === true;
             oai_settings.openai_max_tokens = responseLength;
+            oai_settings.nimi_parameter_overrides.max_tokens = true;
         } else {
             this.#originalResponseLength = amount_gen;
             amount_gen = responseLength;
@@ -4190,6 +4221,7 @@ class TempResponseLength {
         }
         if (api === 'openai') {
             oai_settings.openai_max_tokens = this.#originalResponseLength;
+            oai_settings.nimi_parameter_overrides.max_tokens = this.#originalNimiMaxTokensOverride;
         } else {
             amount_gen = this.#originalResponseLength;
         }
@@ -4276,6 +4308,7 @@ function removeLastMessage() {
  * @property {string} [quietImage] Image URL to use for the quiet prompt (defaults to empty string)
  * @property {string} [quietName] Name to use for the quiet prompt (defaults to "System:")
  * @property {number} [depth] Recursion depth for the generation. Used to prevent infinite loops in tool calls.
+ * @property {function(object): void} [onNimiResult] Receives the complete canonical Nimi result for business persistence.
  * @property {JsonSchema} [jsonSchema] JSON schema to use for the structured generation. Usually requires a special instruction.
  */
 
@@ -4287,7 +4320,7 @@ function removeLastMessage() {
  * @param {boolean} dryRun Whether to actually generate a message or just assemble the prompt
  * @returns {Promise<any>} Returns a promise that resolves when the text is done generating.
  */
-export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
+export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0, onNimiResult = null } = {}, dryRun = false) {
     console.log('Generate entered');
     setGenerationProgress(0);
     generation_started = new Date();
@@ -5384,16 +5417,19 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
 
         if (isStreamingEnabled() && type !== 'quiet') {
             continue_mag = promptReasoning.removePrefix(continue_mag);
-            streamingProcessor = new StreamingProcessor(type, force_name2, generation_started, continue_mag, promptReasoning);
+            const processor = streamingProcessor = new StreamingProcessor(type, force_name2, generation_started, continue_mag, promptReasoning);
+            processor.nimiScope = captureNimiScope();
             if (isContinue) {
                 // Save reply does add cycle text to the prompt, so it's not needed here
-                streamingProcessor.firstMessageText = '';
+                processor.firstMessageText = '';
             }
 
-            streamingProcessor.generator = await sendStreamingRequest(type, generate_data, { jsonSchema });
+            processor.generator = await sendStreamingRequest(type, generate_data, { jsonSchema });
+            processor.nimiScope = processor.generator.nimiScope;
 
             hideSwipeButtons();
-            let getMessage = await streamingProcessor.generate();
+            let getMessage = await processor.generate();
+            assertNimiScope(processor.nimiScope);
             let messageChunk = cleanUpMessage({
                 getMessage: getMessage,
                 isImpersonate: isImpersonate,
@@ -5405,19 +5441,21 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 getMessage = continue_mag + getMessage;
             }
 
-            const isStreamFinished = streamingProcessor && !streamingProcessor.isStopped && streamingProcessor.isFinished;
-            const isStreamWithToolCalls = streamingProcessor && Array.isArray(streamingProcessor.toolCalls) && streamingProcessor.toolCalls.length;
+            const isStreamFinished = processor && !processor.isStopped && processor.isFinished && processor.nimi?.status === 'completed';
+            if (isStreamFinished) assertNimiScope(processor.nimi.scope);
+            const isStreamWithToolCalls = processor && Array.isArray(processor.toolCalls) && processor.toolCalls.length;
             if (canPerformToolCalls && isStreamFinished && isStreamWithToolCalls) {
                 const lastMessage = chat[chat.length - 1];
-                const hasToolCalls = ToolManager.hasToolCalls(streamingProcessor.toolCalls);
-                const shouldDeleteMessage = type !== 'swipe' && ['', '...'].includes(lastMessage?.mes) && !lastMessage?.extra?.reasoning && ['', '...'].includes(streamingProcessor?.result);
+                const hasToolCalls = ToolManager.hasToolCalls(processor.toolCalls);
+                const shouldDeleteMessage = type !== 'swipe' && ['', '...'].includes(lastMessage?.mes) && !lastMessage?.extra?.reasoning && ['', '...'].includes(processor?.result);
                 hasToolCalls && shouldDeleteMessage && await deleteLastMessage();
                 if (hasToolCalls && !shouldDeleteMessage) {
-                    await streamingProcessor.finalizeIntermediaryMessage(streamingProcessor.messageId, getMessage, { unlockUI: false });
+                    await processor.finalizeIntermediaryMessage(processor.messageId, getMessage, { unlockUI: false });
                 }
-                const invocationResult = await ToolManager.invokeFunctionTools(streamingProcessor.toolCalls, {
-                    reasoningText: streamingProcessor.reasoningHandler.reasoning,
+                const invocationResult = await ToolManager.invokeFunctionTools(processor.toolCalls, {
+                    reasoningText: processor.reasoningHandler.reasoning, nimiEnvelope: processor.nimi,
                 });
+                assertNimiScope(processor.nimiScope);
                 const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
                 if (hasToolCalls) {
                     if (shouldStopGeneration) {
@@ -5425,20 +5463,20 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                             ToolManager.showToolCallError(invocationResult.errors);
                         }
                         unblockGeneration(type);
-                        streamingProcessor = null;
+                        if (streamingProcessor === processor) streamingProcessor = null;
                         return;
                     }
 
-                    streamingProcessor = null;
+                    if (streamingProcessor === processor) streamingProcessor = null;
                     depth = depth + 1;
-                    await ToolManager.saveFunctionToolInvocations(invocationResult.invocations);
+                    await ToolManager.saveFunctionToolInvocations(invocationResult.invocations, { nimiEnvelope: invocationResult.nimiEnvelope });
                     return Generate('normal', { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, depth }, dryRun);
                 }
             }
 
             if (isStreamFinished) {
-                await streamingProcessor.onFinishStreaming(streamingProcessor.messageId, getMessage);
-                streamingProcessor = null;
+                await processor.onFinishStreaming(processor.messageId, getMessage);
+                if (streamingProcessor === processor) streamingProcessor = null;
                 triggerAutoContinue(messageChunk, isImpersonate);
                 return Object.defineProperties(new String(getMessage), {
                     'messageChunk': { value: messageChunk },
@@ -5450,6 +5488,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         }
     }
 
+    const nimiGenerationScope = captureNimiScope();
     return finishGenerating().then(onSuccess, onError);
 
     /**
@@ -5460,6 +5499,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
      */
     async function onSuccess(data) {
         if (!data) return;
+        if (data.nimi) assertNimiScope(data.nimi.scope);
 
         if (data?.fromStream) {
             return data;
@@ -5524,14 +5564,15 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             $('#send_textarea').val(getMessage)[0].dispatchEvent(new Event('input', { bubbles: true }));
             await eventSource.emit(event_types.IMPERSONATE_READY, getMessage);
         } else if (type == 'quiet') {
+            if (data.nimi) onNimiResult?.(data.nimi);
             unblockGeneration(type);
             return getMessage;
         } else {
             // Without streaming we'll be having a full message on continuation. Treat it as a last chunk.
             if (originalType !== 'continue') {
-                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature }));
+                ({ type, getMessage } = await saveReply({ type, getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, nimiEnvelope: data.nimi, nimiCandidates: data.nimiCandidates }));
             } else {
-                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature }));
+                ({ type, getMessage } = await saveReply({ type: 'appendFinal', getMessage, title, swipes, reasoning, imageUrls, reasoningSignature, nimiEnvelope: data.nimi, nimiCandidates: data.nimiCandidates }));
             }
 
             // This relies on `saveReply` having been called to add the message to the chat, so it must be last.
@@ -5542,7 +5583,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             const hasToolCalls = ToolManager.hasToolCalls(data);
             const shouldDeleteMessage = type !== 'swipe' && ['', '...'].includes(getMessage) && !reasoning;
             hasToolCalls && shouldDeleteMessage && await deleteLastMessage();
-            const invocationResult = await ToolManager.invokeFunctionTools(data, { reasoningText: reasoning });
+            const invocationResult = await ToolManager.invokeFunctionTools(data, { reasoningText: reasoning, nimiEnvelope: data.nimi });
             const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
             if (hasToolCalls) {
                 if (shouldStopGeneration) {
@@ -5554,7 +5595,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 }
 
                 depth = depth + 1;
-                await ToolManager.saveFunctionToolInvocations(invocationResult.invocations);
+                await ToolManager.saveFunctionToolInvocations(invocationResult.invocations, { nimiEnvelope: invocationResult.nimiEnvelope });
                 return Generate('normal', { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, depth }, dryRun);
             }
         }
@@ -5588,9 +5629,12 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
      * @throws {Error|object} Re-throws the exception
      */
     function onError(exception) {
+        try { assertNimiScope(nimiGenerationScope); } catch { console.log(exception); return; }
         // if the response JSON was thrown (novel|textgenerationwebui|kobold), show the error message
         if (typeof exception?.error?.message === 'string') {
             toastr.error(exception.error.message, t`Text generation error`, { timeOut: 10000, extendedTimeOut: 20000 });
+        } else if (exception instanceof Error && exception.name !== 'AbortError') {
+            toastr.error(exception.message, t`Text generation error`);
         }
 
         unblockGeneration(type);
@@ -5615,6 +5659,8 @@ export function stopGeneration() {
         hideStopButton();
         stopped = true;
     }
+    cancelNimiWork('Generation stopped');
+    unblockGeneration();
     eventSource.emit(event_types.GENERATION_STOPPED);
     return stopped;
 }
@@ -6639,7 +6685,8 @@ async function processImageAttachment(message, { imageUrls }) {
  * @property {string} type Type of generation
  * @property {string} getMessage Generated message
  */
-export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null, nimiEnvelope = null, nimiCandidates = null }) {
+    if (nimiEnvelope) assertNimiScope(nimiEnvelope.scope);
     // Backward compatibility
     if (arguments.length > 1 && typeof arguments[0] !== 'object') {
         console.trace('saveReply called with positional arguments. Please use an object instead.');
@@ -6647,6 +6694,12 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
     }
 
     const lastMessage = chat[chat.length - 1];
+    const nimiPreviousText = lastMessage?.mes;
+    const nimiPreviousReceipt = lastMessage?.extra?.nimiPendingContinuation || lastMessage?.extra?.nimi;
+    if (fromStreaming && lastMessage?.extra) {
+        if (type === 'continue') lastMessage.extra.nimiPendingContinuation = lastMessage.extra.nimi;
+        if (type === 'continue' || type === 'swipe') delete lastMessage.extra.nimi;
+    }
 
     if (type != 'append' && type != 'continue' && type != 'appendFinal' && chat.length && (lastMessage.swipe_id === undefined ||
         lastMessage.is_user)) {
@@ -6784,6 +6837,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
     }
 
     const item = chat[chat.length - 1];
+    if (nimiEnvelope) {
+        assertNimiScope(nimiEnvelope.scope);
+        attachReceipt(item, nimiEnvelope, { continuation: ['append', 'continue', 'appendFinal'].includes(type), previousText: nimiPreviousText, previousReceipt: nimiPreviousReceipt });
+    }
     if (item.swipe_info === undefined) {
         item.swipe_info = [];
     }
@@ -6826,6 +6883,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
     }
 
     statMesProcess(item, type, characters, this_chid, oldMessage);
+    attachCandidateReceipts(item, nimiCandidates);
     return { type, getMessage };
 }
 
@@ -7036,16 +7094,7 @@ function saveImageToMessage(img, mes) {
     }
 }
 
-export function getGeneratingApi() {
-    switch (main_api) {
-        case 'openai':
-            return oai_settings.chat_completion_source || 'openai';
-        case 'textgenerationwebui':
-            return textgen_settings.type === textgen_types.OOBA ? 'textgenerationwebui' : textgen_settings.type;
-        default:
-            return main_api;
-    }
-}
+export function getGeneratingApi() { return 'nimi'; }
 
 export function getGeneratingModel(mes) {
     let model = '';
@@ -7858,7 +7907,7 @@ export function changeMainAPI(api = null) {
         $('#common-gen-settings-block').css('display', 'block');
     }
 
-    main_api = selectedVal;
+    main_api = 'openai';
     setOnlineStatus('no_connection');
 
     if (main_api == 'koboldhorde') {
@@ -7997,7 +8046,7 @@ export async function getSettings(initLoaderHandle = null) {
             settings.main_api = 'openai';
         }
 
-        main_api = settings.main_api;
+        main_api = 'openai';
         $('#main_api').val(main_api);
         $(`#main_api option[value=${main_api}]`).attr('selected', 'true');
         changeMainAPI();

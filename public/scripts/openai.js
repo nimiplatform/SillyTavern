@@ -1,38 +1,11 @@
+import { bindNimiReceipt } from './nimi/history.js';
 /*
 * CODE FOR OPENAI SUPPORT
 * By CncAnon (@CncAnon1)
 * https://github.com/CncAnon1/TavernAITurbo
 */
 import { Fuse, DOMPurify } from '../lib.js';
-
-import {
-    abortStatusCheck,
-    cancelStatusCheck,
-    characters,
-    event_types,
-    eventSource,
-    extension_prompt_roles,
-    extension_prompt_types,
-    Generate,
-    getCurrentChatId,
-    getExtensionPrompt,
-    getExtensionPromptMaxDepth,
-    getMediaDisplay,
-    getMediaIndex,
-    getRequestHeaders,
-    is_send_press,
-    main_api,
-    name1,
-    name2,
-    resultCheckStatus,
-    saveSettingsDebounced,
-    setOnlineStatus,
-    startStatusLoading,
-    substituteParams,
-    substituteParamsExtended,
-    system_message_types,
-    this_chid,
-} from '../script.js';
+import { cancelStatusCheck, characters, event_types, eventSource, extension_prompt_roles, extension_prompt_types, Generate, getExtensionPrompt, getExtensionPromptMaxDepth, getMediaDisplay, getMediaIndex, getRequestHeaders, is_send_press, main_api, name1, name2, resultCheckStatus, saveSettingsDebounced, setOnlineStatus, startStatusLoading, substituteParams, substituteParamsExtended, system_message_types, this_chid } from '../script.js';
 import { getGroupNames, selected_group } from './group-chats.js';
 
 import {
@@ -45,32 +18,10 @@ import {
 
 import { forceCharacterEditorTokenize, getCustomStoppingStrings, persona_description_positions, power_user } from './power-user.js';
 import { SECRET_KEYS, secret_state, writeSecret } from './secrets.js';
-
-import { getEventSourceStream } from './sse-stream.js';
-import {
-    clamp,
-    createThumbnail,
-    delay,
-    download,
-    getAudioDurationFromDataURL,
-    getBase64Async,
-    getFileText,
-    getImageSizeFromDataURL,
-    getSortableDelay,
-    getStringHash,
-    getVideoDurationFromDataURL,
-    isDataURL,
-    isUuid,
-    isValidUrl,
-    parseJsonFile,
-    resetScrollHeight,
-    stringFormat,
-    textValueMatcher,
-    uuidv4,
-} from './utils.js';
-import { countTokensOpenAIAsync, getTokenizerModel } from './tokenizers.js';
+import { createThumbnail, download, getAudioDurationFromDataURL, getBase64Async, getFileText, getImageSizeFromDataURL, getSortableDelay, getVideoDurationFromDataURL, isDataURL, isUuid, parseJsonFile, resetScrollHeight, stringFormat, textValueMatcher, uuidv4 } from './utils.js';
+import { countTokensOpenAIAsync } from './tokenizers.js';
 import { isMobile } from './RossAscends-mods.js';
-import { saveLogprobsForActiveMessage } from './logprobs.js';
+
 import { SlashCommandParser } from './slash-commands/SlashCommandParser.js';
 import { SlashCommand } from './slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument } from './slash-commands/SlashCommandArgument.js';
@@ -79,8 +30,12 @@ import { SlashCommandEnumValue } from './slash-commands/SlashCommandEnumValue.js
 import { callGenericPopup, Popup, POPUP_RESULT, POPUP_TYPE } from './popup.js';
 import { t } from './i18n.js';
 import { ToolManager } from './tool-calling.js';
-import { accountStorage } from './util/AccountStorage.js';
-import { COMETAPI_IGNORE_PATTERNS, IGNORE_SYMBOL, MEDIA_DISPLAY, MEDIA_TYPE } from './constants.js';
+
+import { sendNimiText } from './nimi/text.js';
+import { assertUserHistoryRetained } from './nimi/model-input.js';
+import { nimiRequestParameters, readNimiParameterOverrides } from './nimi/request-parameters.js';
+import { refreshNimiConfig, getNimiSelection, getNimiModelLabel, nimiSupports } from './nimi/platform.bundle.js';
+import { IGNORE_SYMBOL, MEDIA_DISPLAY, MEDIA_TYPE } from './constants.js';
 import { syncNanoGptProvidersForModel, syncOpenRouterProvidersForModel, updateNanoGptProvidersWarning, updateOpenRouterProvidersWarning } from './textgen-models.js';
 
 export {
@@ -141,40 +96,10 @@ const oai_max_temp = 2.0;
 const claude_max_temp = 1.0;
 const mistral_max_temp = 1.5;
 const openrouter_website_model = 'OR_Website';
-const openai_max_stop_strings = 4;
-
-const textCompletionModels = [
-    'gpt-3.5-turbo-instruct',
-    'gpt-3.5-turbo-instruct-0914',
-    'text-davinci-003',
-    'text-davinci-002',
-    'text-davinci-001',
-    'text-curie-001',
-    'text-babbage-001',
-    'text-ada-001',
-    'code-davinci-002',
-    'code-davinci-001',
-    'code-cushman-002',
-    'code-cushman-001',
-    'text-davinci-edit-001',
-    'code-davinci-edit-001',
-    'text-embedding-ada-002',
-    'text-similarity-davinci-001',
-    'text-similarity-curie-001',
-    'text-similarity-babbage-001',
-    'text-similarity-ada-001',
-    'text-search-davinci-doc-001',
-    'text-search-curie-doc-001',
-    'text-search-babbage-doc-001',
-    'text-search-ada-doc-001',
-    'code-search-babbage-code-001',
-    'code-search-ada-code-001',
-];
-
-let biasCache = undefined;
 export let model_list = [];
 
 export const chat_completion_sources = {
+    NIMI: 'nimi',
     OPENAI: 'openai',
     CLAUDE: 'claude',
     OPENROUTER: 'openrouter',
@@ -406,10 +331,12 @@ export const settingsToUpdate = {
     azure_api_version: ['#azure_api_version', 'azure_api_version', false, true],
     azure_openai_model: ['#azure_openai_model', 'azure_openai_model', false, true],
     extensions: ['#NULL_SELECTOR', 'extensions', false, false],
+    nimi_parameter_overrides: ['#NULL_SELECTOR', 'nimi_parameter_overrides', false, false],
 };
 
 const default_settings = {
     preset_settings_openai: 'Default',
+    nimi_parameter_overrides: {},
     temp_openai: 1.0,
     freq_pen_openai: 0,
     pres_pen_openai: 0,
@@ -534,34 +461,6 @@ export let openai_settings;
 /** @type {import('./PromptManager.js').PromptManager} */
 export let promptManager = null;
 
-async function validateReverseProxy() {
-    if (!oai_settings.reverse_proxy) {
-        return;
-    }
-
-    try {
-        new URL(oai_settings.reverse_proxy);
-    } catch (err) {
-        toastr.error(t`Entered reverse proxy address is not a valid URL`);
-        setOnlineStatus('no_connection');
-        resultCheckStatus();
-        throw err;
-    }
-    const rememberKey = `Proxy_SkipConfirm_${getStringHash(oai_settings.reverse_proxy)}`;
-    const skipConfirm = accountStorage.getItem(rememberKey) === 'true';
-
-    const confirmation = skipConfirm || await Popup.show.confirm(t`Connecting To Proxy`, await renderTemplateAsync('proxyConnectionWarning', { proxyURL: DOMPurify.sanitize(oai_settings.reverse_proxy) }));
-
-    if (!confirmation) {
-        toastr.error(t`Update or remove your reverse proxy settings.`);
-        setOnlineStatus('no_connection');
-        resultCheckStatus();
-        throw new Error('Proxy connection denied.');
-    }
-
-    accountStorage.setItem(rememberKey, String(true));
-}
-
 /**
  * Formats chat messages into chat completion messages.
  * @param {ChatMessage[]} chat - Array containing all messages.
@@ -619,6 +518,7 @@ function setOpenAIMessages(chat) {
         const mediaDisplay = getMediaDisplay(chat[j]);
         const mediaIndex = getMediaIndex(chat[j]);
         const invocations = chat[j]?.extra?.tool_invocations?.slice();
+        const nimi = chat[j]?.extra?.nimi;
 
         // Only send thought signatures if they were generated by the same API and model
         const originApi = chat[j]?.extra?.api;
@@ -641,7 +541,7 @@ function setOpenAIMessages(chat) {
             });
         }
 
-        messages[i] = { 'role': role, 'content': content, name: name, 'media': media, 'mediaDisplay': mediaDisplay, 'mediaIndex': mediaIndex, 'invocations': invocations, 'signature': signature, 'reasoning': reasoning };
+        messages[i] = { 'role': role, 'content': content, name: name, 'media': media, 'mediaDisplay': mediaDisplay, 'mediaIndex': mediaIndex, 'invocations': invocations, 'signature': signature, 'reasoning': reasoning, nimi };
         j++;
     }
 
@@ -917,6 +817,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
             const continueMessage = messages.splice(continueMessageIndex, 1)[0];
             const prompt = new Prompt(continueMessage);
             const chatMessage = await Message.fromPromptAsync(promptManager.preparePrompt(prompt));
+            bindNimiReceipt(chatMessage, continueMessage.nimi);
             continueMessageCollection.add(chatMessage);
         }
         const continueNudgePrompt = new Prompt(promptObject);
@@ -935,7 +836,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const imageInlining = isImageInliningSupported();
     const videoInlining = isVideoInliningSupported();
     const audioInlining = isAudioInliningSupported();
-    const canUseTools = ToolManager.isToolCallingSupported();
+    const canUseTools = oai_settings.chat_completion_source === chat_completion_sources.NIMI || ToolManager.isToolCallingSupported();
     const includeSignature = isReasoningSignatureSupported();
     const isToolReasoningProvider = interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
     const toolReasoningMode = isToolReasoningProvider
@@ -953,6 +854,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
         const prompt = new Prompt(chatPrompt);
         prompt.identifier = `chatHistory-${messages.length - index}`;
         const chatMessage = await Message.fromPromptAsync(promptManager.preparePrompt(prompt));
+        bindNimiReceipt(chatMessage, chatPrompt.nimi);
 
         if (promptManager.serviceSettings.names_behavior === character_names_behavior.COMPLETION && prompt.name) {
             const messageName = promptManager.isValidName(prompt.name) ? prompt.name : promptManager.sanitizeName(prompt.name);
@@ -1049,7 +951,12 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
                 return clone;
             });
             const toolCallMessage = await Message.createAsync(chatMessage.role, undefined, 'toolCall-' + chatMessage.identifier);
-            const toolResultMessages = await Promise.all(invocations.slice().reverse().map((invocation) => Message.createAsync('tool', invocation.result || '[No content]', invocation.id)));
+            bindNimiReceipt(toolCallMessage, chatPrompt.nimi);
+            const toolResultMessages = await Promise.all(invocations.slice().reverse().map(async (invocation) => {
+                const message = await Message.createAsync('tool', invocation.result || '[No content]', invocation.id);
+                message.nimiToolResult = { result: invocation.result, isError: Boolean(invocation.error) };
+                return message;
+            }));
             await toolCallMessage.setToolCalls(invocations, includeSignature, includeToolReasoning);
             if (chatCompletion.canAffordAll([toolCallMessage, ...toolResultMessages])) {
                 for (const resultMessage of toolResultMessages) {
@@ -1566,6 +1473,9 @@ export async function prepareOpenAIMessages({
     const userSettings = promptManager.serviceSettings;
     chatCompletion.setTokenBudget(userSettings.openai_max_context, userSettings.openai_max_tokens);
 
+    const hadUserHistory = messages?.some(message => message.role === 'user') ?? false;
+    let preparationError;
+
     try {
         // Merge markers and ordered user prompts with system prompts
         const prompts = await preparePromptsForChatCompletion({
@@ -1586,6 +1496,7 @@ export async function prepareOpenAIMessages({
         // Fill the chat completion with as much context as the budget allows
         await populateChatCompletion(prompts, chatCompletion, { bias, quietPrompt, quietImage, type, cyclePrompt, messages, messageExamples });
     } catch (error) {
+        preparationError = error;
         if (error instanceof TokenBudgetExceededError) {
             toastr.error(t`Mandatory prompts exceed the context size.`);
             chatCompletion.log('Mandatory prompts exceed the context size.');
@@ -1615,8 +1526,12 @@ export async function prepareOpenAIMessages({
 
     const chat = chatCompletion.getChat();
 
+    if (preparationError && !dryRun) throw preparationError;
+
     const eventData = { chat, dryRun };
     await eventSource.emit(event_types.CHAT_COMPLETION_PROMPT_READY, eventData);
+
+    if (!dryRun) assertUserHistoryRetained(hadUserHistory, chat);
 
     openai_messages_count = chat.filter(x => !x?.tool_calls && ['user', 'assistant', 'tool'].includes(x?.role)).length || 0;
 
@@ -1719,965 +1634,7 @@ function checkModerationError(data, { quiet = false } = {}) {
  * @param {ChatCompletionSettings} settings Chat completion settings
  * @returns {string} API model
  */
-export function getChatCompletionModel(settings = null) {
-    settings = settings ?? oai_settings;
-    const source = settings.chat_completion_source;
-    switch (source) {
-        case chat_completion_sources.CLAUDE:
-            return settings.claude_model;
-        case chat_completion_sources.OPENAI:
-            return settings.openai_model;
-        case chat_completion_sources.MAKERSUITE:
-            return settings.google_model;
-        case chat_completion_sources.VERTEXAI:
-            return settings.vertexai_model;
-        case chat_completion_sources.OPENROUTER:
-            return settings.openrouter_model !== openrouter_website_model ? settings.openrouter_model : null;
-        case chat_completion_sources.AI21:
-            return settings.ai21_model;
-        case chat_completion_sources.MISTRALAI:
-            return settings.mistralai_model;
-        case chat_completion_sources.CUSTOM:
-            return settings.custom_model;
-        case chat_completion_sources.COHERE:
-            return settings.cohere_model;
-        case chat_completion_sources.PERPLEXITY:
-            return settings.perplexity_model;
-        case chat_completion_sources.GROQ:
-            return settings.groq_model;
-        case chat_completion_sources.SILICONFLOW:
-            return settings.siliconflow_model;
-        case chat_completion_sources.MINIMAX:
-            return settings.minimax_model;
-        case chat_completion_sources.ELECTRONHUB:
-            return settings.electronhub_model;
-        case chat_completion_sources.CHUTES:
-            return settings.chutes_model;
-        case chat_completion_sources.NANOGPT:
-            return settings.nanogpt_model;
-        case chat_completion_sources.DEEPSEEK:
-            return settings.deepseek_model;
-        case chat_completion_sources.AIMLAPI:
-            return settings.aimlapi_model;
-        case chat_completion_sources.XAI:
-            return settings.xai_model;
-        case chat_completion_sources.POLLINATIONS:
-            return settings.pollinations_model;
-        case chat_completion_sources.COMETAPI:
-            return settings.cometapi_model;
-        case chat_completion_sources.MOONSHOT:
-            return settings.moonshot_model;
-        case chat_completion_sources.FIREWORKS:
-            return settings.fireworks_model;
-        case chat_completion_sources.AZURE_OPENAI:
-            return settings.azure_openai_model;
-        case chat_completion_sources.ZAI:
-            return settings.zai_model;
-        case chat_completion_sources.WORKERS_AI:
-            return settings.workers_ai_model;
-        default:
-            console.error(`Unknown chat completion source: ${source}`);
-            return '';
-    }
-}
-
-function getOpenRouterModelTemplate(option) {
-    const model = model_list.find(x => x.id === option?.element?.value);
-
-    if (!option.id || !model) {
-        return option.text;
-    }
-
-    let tokens_dollar = Number(1 / (1000 * model.pricing?.prompt));
-    let tokens_rounded = (Math.round(tokens_dollar * 1000) / 1000).toFixed(0);
-
-    const price = 0 === Number(model.pricing?.prompt) ? 'Free' : `${tokens_rounded}k t/$ `;
-
-    return $((`
-        <div class="flex-container flexFlowColumn" title="${DOMPurify.sanitize(model.id)}">
-            <div><strong>${DOMPurify.sanitize(model.name)}</strong> | ${model.context_length} ctx | <small>${price}</small></div>
-        </div>
-    `));
-}
-
-function calculateOpenRouterCost() {
-    if (oai_settings.chat_completion_source !== chat_completion_sources.OPENROUTER) {
-        return;
-    }
-
-    let cost = 'Unknown';
-    const model = model_list.find(x => x.id === oai_settings.openrouter_model);
-
-    if (model?.pricing) {
-        const completionCost = Number(model.pricing.completion);
-        const promptCost = Number(model.pricing.prompt);
-        const completionTokens = oai_settings.openai_max_tokens;
-        const promptTokens = (oai_settings.openai_max_context - completionTokens);
-        const totalCost = (completionCost * completionTokens) + (promptCost * promptTokens);
-        if (!isNaN(totalCost)) {
-            cost = '$' + totalCost.toFixed(3);
-        }
-    }
-
-    if (oai_settings.enable_web_search) {
-        const webSearchCost = (0.02).toFixed(2);
-        cost = t`${cost} + $${webSearchCost}`;
-    }
-
-    $('#openrouter_max_prompt_cost').text(cost);
-}
-
-function getElectronHubModelTemplate(option) {
-    const model = model_list.find(x => x.id === option?.element?.value);
-
-    if (!option.id || !model) {
-        return option.text;
-    }
-
-    const inputPrice = model.pricing?.input;
-    const outputPrice = model.pricing?.output;
-    const price = inputPrice && outputPrice ? `$${inputPrice}/$${outputPrice} in/out Mtoken` : 'Unknown';
-
-    const visionIcon = model.metadata?.vision ? '<i class="fa-solid fa-eye fa-sm" title="This model supports vision"></i>' : '';
-    const reasoningIcon = model.metadata?.reasoning ? '<i class="fa-solid fa-brain fa-sm" title="This model supports reasoning"></i>' : '';
-    const toolCallsIcon = model.metadata?.function_call ? '<i class="fa-solid fa-wrench fa-sm" title="This model supports function tools"></i>' : '';
-    const premiumIcon = model?.premium_model ? '<i class="fa-solid fa-crown fa-sm" title="This model requires a subscription"></i>' : '';
-
-    const iconsContainer = document.createElement('span');
-    iconsContainer.insertAdjacentHTML('beforeend', visionIcon);
-    iconsContainer.insertAdjacentHTML('beforeend', reasoningIcon);
-    iconsContainer.insertAdjacentHTML('beforeend', toolCallsIcon);
-    iconsContainer.insertAdjacentHTML('beforeend', premiumIcon);
-
-    const capabilities = (iconsContainer.children.length) ? ` | ${iconsContainer.innerHTML}` : '';
-
-    return $((`
-        <div class="flex-container alignItemsBaseline" title="${DOMPurify.sanitize(model.id)}">
-            <strong>${DOMPurify.sanitize(model.name)}</strong> | ${model.tokens} ctx | <small>${price}</small>${capabilities}
-        </div>
-    `));
-}
-
-function calculateElectronHubCost() {
-    if (oai_settings.chat_completion_source !== chat_completion_sources.ELECTRONHUB) {
-        return;
-    }
-
-    let cost = 'Unknown';
-    const model = model_list.find(x => x.id === oai_settings.electronhub_model);
-
-    if (model?.pricing) {
-        const outputCost = Number(model.pricing.output / 1000000);
-        const inputCost = Number(model.pricing.input / 1000000);
-        const outputTokens = oai_settings.openai_max_tokens;
-        const inputTokens = (oai_settings.openai_max_context - outputTokens);
-        const totalCost = (outputCost * outputTokens) + (inputCost * inputTokens);
-        if (!isNaN(totalCost)) {
-            cost = '$' + totalCost.toFixed(4);
-        }
-    }
-
-    $('#electronhub_max_prompt_cost').text(cost);
-}
-
-function getChutesModelTemplate(option) {
-    const model = model_list.find(x => x.id === option?.element?.value);
-
-    if (!option.id || !model) {
-        return option.text;
-    }
-
-    const inputPrice = model.pricing?.input;
-    const outputPrice = model.pricing?.output;
-
-    let price = 'Unknown';
-    if (inputPrice !== undefined && outputPrice !== undefined) {
-        // Check if both prices are 0 (free model)
-        if (inputPrice === 0 && outputPrice === 0) {
-            price = 'Free';
-        } else {
-            price = `$${inputPrice}/$${outputPrice} in/out Mtoken`;
-        }
-    }
-
-    const contextLength = model.context_length || model.max_model_len || 'Unknown';
-    const visionIcon = model.input_modalities?.includes('image') ? '<i class="fa-solid fa-eye fa-sm" title="This model supports vision"></i>' : '';
-    const reasoningIcon = model.supported_features?.includes('reasoning') ? '<i class="fa-solid fa-brain fa-sm" title="This model supports reasoning"></i>' : '';
-    const toolCallsIcon = model.supported_features?.includes('structured_outputs') ? '<i class="fa-solid fa-wrench fa-sm" title="This model supports function tools"></i>' : '';
-
-    const iconsContainer = document.createElement('span');
-    iconsContainer.insertAdjacentHTML('beforeend', visionIcon);
-    iconsContainer.insertAdjacentHTML('beforeend', reasoningIcon);
-    iconsContainer.insertAdjacentHTML('beforeend', toolCallsIcon);
-
-    const capabilities = (iconsContainer.children.length) ? ` | ${iconsContainer.innerHTML}` : '';
-
-    return $((`
-        <div class="flex-container alignItemsBaseline" title="${DOMPurify.sanitize(model.id)}">
-            <strong>${DOMPurify.sanitize(model.id)}</strong> | ${contextLength} ctx | <small>${price}</small>${capabilities}
-        </div>
-    `));
-}
-
-function calculateChutesCost() {
-    if (oai_settings.chat_completion_source !== chat_completion_sources.CHUTES) {
-        return;
-    }
-
-    let cost = 'Unknown';
-    const model = model_list.find(x => x.id === oai_settings.chutes_model);
-
-    if (model?.pricing) {
-        const outputPrice = model.pricing?.output;
-        const inputPrice = model.pricing?.input;
-
-        if (outputPrice !== undefined && inputPrice !== undefined) {
-            const outputCost = Number(outputPrice / 1000000);
-            const inputCost = Number(inputPrice / 1000000);
-            const outputTokens = oai_settings.openai_max_tokens;
-            const inputTokens = (oai_settings.openai_max_context - outputTokens);
-            const totalCost = (outputCost * outputTokens) + (inputCost * inputTokens);
-            if (!isNaN(totalCost)) {
-                cost = '$' + totalCost.toFixed(4);
-            }
-        }
-    }
-
-    $('#chutes_max_prompt_cost').text(cost);
-}
-
-function getNanoGptModelTemplate(option) {
-    const model = model_list.find(x => x.id === option?.element?.value);
-
-    if (!option.id || !model) {
-        return option.text;
-    }
-
-    const inputPrice = model.pricing?.prompt;
-    const outputPrice = model.pricing?.completion;
-    let price = 'Unknown';
-
-    if (inputPrice !== undefined && outputPrice !== undefined) {
-        if (inputPrice === 0 && outputPrice === 0) {
-            price = 'Free';
-        } else {
-            price = `$${Math.round(inputPrice * 100) / 100}/$${Math.round(outputPrice * 100) / 100} in/out Mtoken`;
-        }
-    }
-
-    const visionIcon = model.capabilities?.vision ? '<i class="fa-solid fa-eye fa-sm" title="This model supports vision"></i>' : '';
-    const reasoningIcon = model.capabilities?.reasoning ? '<i class="fa-solid fa-brain fa-sm" title="This model supports reasoning"></i>' : '';
-    const toolCallsIcon = model.capabilities?.tool_calling ? '<i class="fa-solid fa-wrench fa-sm" title="This model supports tool calling"></i>' : '';
-
-    let subHtml = '';
-    const sub = model.subscription;
-
-    if (sub) {
-        if (sub.included) {
-            let titleText = 'Included in subscription';
-            let multiplierText = '';
-
-            if (sub.inputTokenMultiplier && sub.inputTokenMultiplier !== 1) {
-                multiplierText = ` (${sub.inputTokenMultiplier}x)`;
-                titleText += ` - Input Multiplier: ${sub.inputTokenMultiplier}x`;
-            }
-            subHtml = ` <small title="${titleText}"><i class="fa-solid fa-crown fa-sm"></i> Sub${multiplierText}</small>`;
-        } else if (sub.note) {
-            const safeNote = DOMPurify.sanitize(sub.note);
-            subHtml = ` <small title="${safeNote}"><i class="fa-solid fa-circle-info fa-sm"></i> Not in Sub</small>`;
-        }
-    }
-
-    const iconsContainer = document.createElement('span');
-    iconsContainer.insertAdjacentHTML('beforeend', visionIcon);
-    iconsContainer.insertAdjacentHTML('beforeend', reasoningIcon);
-    iconsContainer.insertAdjacentHTML('beforeend', toolCallsIcon);
-    iconsContainer.insertAdjacentHTML('beforeend', subHtml);
-
-    const capabilities = (iconsContainer.children.length) ? ` | ${iconsContainer.innerHTML}` : '';
-
-    const contextLength = model.context_length || 'Unknown';
-    const modelName = model.name || model.id;
-
-    return $((`
-        <div class="flex-container alignItemsBaseline" title="${DOMPurify.sanitize(model.id)}">
-            <strong>${DOMPurify.sanitize(modelName)}</strong> | ${contextLength} ctx | <small>${price}</small>${capabilities}
-        </div>
-    `));
-}
-
-function getAimlapiModelTemplate(option) {
-    const model = model_list.find(x => x.id === option?.element?.value);
-
-    if (!option.id || !model) {
-        return option.text;
-    }
-
-    const vendor = model.id.split('/')[0];
-
-    return $((`
-        <div class="flex-container flexFlowColumn" title="${DOMPurify.sanitize(model.id)}">
-            <div><strong>${DOMPurify.sanitize(model.info?.name || model.name || model.id)}</strong> | ${vendor}</div>
-        </div>
-    `));
-}
-
-function saveModelList(data) {
-    model_list = data.map((model) => ({ ...model }));
-    model_list.sort((a, b) => a?.id && b?.id && a.id.localeCompare(b.id));
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.OPENROUTER) {
-        model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.OPENROUTER);
-        $('#model_openrouter_select').empty();
-        $('#model_openrouter_select').append($('<option>', { value: openrouter_website_model, text: t`Use OpenRouter website setting` }));
-
-        if (oai_settings.group_models) {
-            groupModelsByVendor(model_list, chat_completion_sources.OPENROUTER).forEach((models, vendor) => {
-                const optgroup = $('<optgroup>').attr('label', vendor);
-                models.forEach((model) => {
-                    optgroup.append($('<option>', { value: model.id, text: model.name }));
-                });
-                $('#model_openrouter_select').append(optgroup);
-            });
-        } else {
-            model_list.forEach((model) => {
-                $('#model_openrouter_select').append($('<option>', { value: model.id, text: model.name }));
-            });
-        }
-
-        $('#model_openrouter_select').val(oai_settings.openrouter_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.OPENAI) {
-        $('#openai_external_category').empty();
-        model_list.forEach((model) => {
-            $('#openai_external_category').append(
-                $('<option>', {
-                    value: model.id,
-                    text: model.id,
-                }));
-        });
-        // If the selected model is not in the list, revert to default
-        if (oai_settings.show_external_models) {
-            const model = model_list.findIndex((model) => model.id == oai_settings.openai_model) !== -1 ? oai_settings.openai_model : default_settings.openai_model;
-            $('#model_openai_select').val(model).trigger('change');
-        }
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.CUSTOM) {
-        $('.model_custom_select').empty();
-        $('.model_custom_select').append('<option value="">None</option>');
-        model_list.forEach((model) => {
-            $('.model_custom_select').append(
-                $('<option>', {
-                    value: model.id,
-                    text: model.id,
-                    selected: model.id == oai_settings.custom_model,
-                }));
-        });
-
-        if (!oai_settings.custom_model && model_list.length > 0) {
-            $('#model_custom_select').val(model_list[0].id).trigger('change');
-        }
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.AIMLAPI) {
-        model_list = model_list.filter(m => m.type === 'chat-completion');
-        model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.AIMLAPI);
-        $('#model_aimlapi_select').empty();
-
-        if (oai_settings.group_models) {
-            groupModelsByVendor(model_list, chat_completion_sources.AIMLAPI).forEach((models, vendor) => {
-                const optgroup = $('<optgroup>').attr('label', vendor);
-                models.forEach((model) => {
-                    optgroup.append($('<option>', { value: model.id, text: model.info?.name || model.id }));
-                });
-                $('#model_aimlapi_select').append(optgroup);
-            });
-        } else {
-            model_list.forEach((model) => {
-                $('#model_aimlapi_select').append($('<option>', { value: model.id, text: model.info?.name || model.id }));
-            });
-        }
-
-        if (!oai_settings.aimlapi_model && model_list.length > 0) {
-            oai_settings.aimlapi_model = model_list[0].id;
-        }
-
-        $('#model_aimlapi_select').val(oai_settings.aimlapi_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.MISTRALAI) {
-        $('#model_mistralai_select').empty();
-
-        for (const model of model_list.filter(model => model?.capabilities?.completion_chat)) {
-            $('#model_mistralai_select').append(new Option(model.id, model.id));
-        }
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.mistralai_model);
-        if (!selectedModel) {
-            oai_settings.mistralai_model = model_list.find(model => model?.capabilities?.completion_chat)?.id;
-        }
-
-        $('#model_mistralai_select').val(oai_settings.mistralai_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.ELECTRONHUB) {
-        model_list = model_list.filter(model => model?.endpoints?.includes('/v1/chat/completions'));
-        model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.ELECTRONHUB);
-        $('#model_electronhub_select').empty();
-
-        if (oai_settings.group_models) {
-            groupModelsByVendor(model_list, chat_completion_sources.ELECTRONHUB).forEach((models, vendor) => {
-                const optgroup = $('<optgroup>').attr('label', vendor);
-                models.forEach((model) => {
-                    optgroup.append($('<option>', { value: model.id, text: model.name }));
-                });
-                $('#model_electronhub_select').append(optgroup);
-            });
-        } else {
-            model_list.forEach((model) => {
-                $('#model_electronhub_select').append($('<option>', { value: model.id, text: model.name }));
-            });
-        }
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.electronhub_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.electronhub_model)) {
-            oai_settings.electronhub_model = model_list[0].id;
-        }
-
-        $('#model_electronhub_select').val(oai_settings.electronhub_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.CHUTES) {
-        model_list = model_list.filter(model => typeof model.id === 'string' && !model.id.toLowerCase().includes('affine'));
-        model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.CHUTES);
-        $('#model_chutes_select').empty();
-
-        if (oai_settings.group_models) {
-            groupModelsByVendor(model_list, chat_completion_sources.CHUTES).forEach((models, vendor) => {
-                const optgroup = $('<optgroup>').attr('label', vendor);
-                models.forEach((model) => {
-                    optgroup.append($('<option>', { value: model.id, text: model.id }));
-                });
-                $('#model_chutes_select').append(optgroup);
-            });
-        } else {
-            model_list.forEach((model) => {
-                $('#model_chutes_select').append($('<option>', { value: model.id, text: model.id }));
-            });
-        }
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.chutes_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.chutes_model)) {
-            oai_settings.chutes_model = model_list[0].id;
-        }
-
-        $('#model_chutes_select').val(oai_settings.chutes_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.NANOGPT) {
-        model_list = sortModelsBy(model_list, oai_settings.sort_models, chat_completion_sources.NANOGPT);
-        $('#model_nanogpt_select').empty();
-
-        if (oai_settings.group_models) {
-            groupModelsByVendor(model_list, chat_completion_sources.NANOGPT).forEach((models, vendor) => {
-                const optgroup = $('<optgroup>').attr('label', vendor);
-                models.forEach((model) => {
-                    optgroup.append($('<option>', { value: model.id, text: model.name || model.id }));
-                });
-                $('#model_nanogpt_select').append(optgroup);
-            });
-        } else {
-            model_list.forEach((model) => {
-                $('#model_nanogpt_select').append($('<option>', { value: model.id, text: model.name || model.id }));
-            });
-        }
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.nanogpt_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.nanogpt_model)) {
-            oai_settings.nanogpt_model = model_list[0].id;
-        }
-
-        $('#model_nanogpt_select').val(oai_settings.nanogpt_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.DEEPSEEK) {
-        $('#model_deepseek_select').empty();
-        model_list.forEach((model) => {
-            $('#model_deepseek_select').append($('<option>', { value: model.id, text: model.id }));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.deepseek_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.deepseek_model)) {
-            oai_settings.deepseek_model = model_list[0].id;
-        }
-
-        $('#model_deepseek_select').val(oai_settings.deepseek_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.POLLINATIONS) {
-        $('#model_pollinations_select').empty();
-        model_list.forEach((model) => {
-            $('#model_pollinations_select').append($('<option>', { value: model.id, text: model.id }));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.pollinations_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.pollinations_model)) {
-            oai_settings.pollinations_model = model_list[0].id;
-        }
-
-        $('#model_pollinations_select').val(oai_settings.pollinations_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.MAKERSUITE) {
-        // Clear only the "Other" optgroup for dynamic models
-        $('#google_other_models').empty();
-
-        // Get static model options that are already in the HTML
-        const staticModels = [];
-        $('#model_google_select option').each(function () {
-            staticModels.push($(this).val());
-        });
-
-        // Add dynamic models to the "Other" group
-        model_list.forEach((model) => {
-            // Only add if not already in static list
-            if (!staticModels.includes(model.id)) {
-                $('#google_other_models').append(
-                    $('<option>', {
-                        value: model.id,
-                        text: model.id,
-                    }));
-            }
-        });
-
-        // Merge static models into model_list
-        staticModels.forEach(modelId => {
-            if (!model_list.some(model => model.id === modelId)) {
-                model_list.push({ id: modelId });
-            }
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.google_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.google_model)) {
-            oai_settings.google_model = model_list[0].id;
-        }
-
-        $('#model_google_select').val(oai_settings.google_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.GROQ) {
-        $('#model_groq_select').empty();
-        model_list.forEach((model) => {
-            $('#model_groq_select').append(
-                $('<option>', {
-                    value: model.id,
-                    text: model.id,
-                }));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.groq_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.groq_model)) {
-            oai_settings.groq_model = model_list[0].id;
-        }
-
-        $('#model_groq_select').val(oai_settings.groq_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.SILICONFLOW) {
-        $('#model_siliconflow_select').empty();
-        model_list.forEach((model) => {
-            $('#model_siliconflow_select').append(
-                $('<option>', {
-                    value: model.id,
-                    text: model.id,
-                }));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.siliconflow_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.siliconflow_model)) {
-            oai_settings.siliconflow_model = model_list[0].id;
-        }
-
-        $('#model_siliconflow_select').val(oai_settings.siliconflow_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
-        $('#model_fireworks_select').empty();
-        model_list.sort((a, b) => (a?.name || a?.id || '').localeCompare(b?.name || b?.id || ''));
-        model_list.forEach((model) => {
-            $('#model_fireworks_select').append(
-                $('<option>', {
-                    value: model.id,
-                    text: model.name || model.id,
-                }));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.fireworks_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.fireworks_model)) {
-            oai_settings.fireworks_model = model_list[0].id;
-        }
-
-        $('#model_fireworks_select').val(oai_settings.fireworks_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.WORKERS_AI) {
-        $('#model_workers_ai_select').empty();
-        model_list.forEach((model) => {
-            $('#model_workers_ai_select').append(
-                $('<option>', {
-                    value: model.id,
-                    text: model.id,
-                }));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.workers_ai_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.workers_ai_model)) {
-            oai_settings.workers_ai_model = model_list[0].id;
-        }
-
-        $('#model_workers_ai_select').val(oai_settings.workers_ai_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.COMETAPI) {
-        $('#model_cometapi_select').empty();
-
-        model_list.forEach((model) => {
-            const modelId = model.id.toLowerCase();
-            const isIgnoredModel = COMETAPI_IGNORE_PATTERNS.some(pattern => modelId.includes(pattern));
-
-            if (isIgnoredModel) {
-                return;
-            }
-
-            $('#model_cometapi_select').append(new Option(model.id, model.id));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.cometapi_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.cometapi_model)) {
-            oai_settings.cometapi_model = model_list[0].id;
-            saveSettingsDebounced();
-        }
-
-        $('#model_cometapi_select').val(oai_settings.cometapi_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.AZURE_OPENAI) {
-        const modelId = model_list?.[0]?.id || '';
-        oai_settings.azure_openai_model = modelId;
-
-        $('#azure_openai_model')
-            .empty()
-            .append(new Option(modelId || 'None', modelId || '', true, true))
-            .trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.XAI) {
-        $('#model_xai_select').empty();
-        model_list.forEach((model) => {
-            $('#model_xai_select').append(
-                $('<option>', {
-                    value: model.id,
-                    text: model.id,
-                }));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.xai_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.xai_model)) {
-            oai_settings.xai_model = model_list[0].id;
-        }
-
-        $('#model_xai_select').val(oai_settings.xai_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.MOONSHOT) {
-        $('#model_moonshot_select').empty();
-        model_list.forEach((model) => {
-            $('#model_moonshot_select').append(new Option(model.id, model.id));
-        });
-
-        const selectedModel = model_list.find(model => model.id === oai_settings.moonshot_model);
-        if (model_list.length > 0 && (!selectedModel || !oai_settings.moonshot_model)) {
-            oai_settings.moonshot_model = model_list[0].id;
-        }
-
-        $('#model_moonshot_select').val(oai_settings.moonshot_model).trigger('change');
-    }
-}
-
-/**
- * Sorts models by the specified property for the given source.
- * @param {object[]} data - Array of model objects
- * @param {string} property - Sort property ('alphabetically', 'context_length', 'pricing.prompt', 'pricing.completion')
- * @param {string} source - Chat Completion source (e.g., 'openrouter', 'chutes', 'electronhub', 'nanogpt')
- * @returns {object[]} Sorted array of model objects
- */
-function sortModelsBy(data, property, source) {
-    switch (source) {
-        case chat_completion_sources.OPENROUTER:
-            return data.sort((a, b) => {
-                if (property === 'context_length') {
-                    return (b.context_length || 0) - (a.context_length || 0);
-                } else if (property === 'pricing.input' || property === 'pricing.prompt') {
-                    return parseFloat(a.pricing?.prompt || 0) - parseFloat(b.pricing?.prompt || 0);
-                } else if (property === 'pricing.output' || property === 'pricing.completion') {
-                    return parseFloat(a.pricing?.completion || 0) - parseFloat(b.pricing?.completion || 0);
-                } else {
-                    return a?.name && b?.name ? a.name.localeCompare(b.name) : 0;
-                }
-            });
-        case chat_completion_sources.CHUTES:
-            return data.sort((a, b) => {
-                if (property === 'context_length') {
-                    return (b.context_length || 0) - (a.context_length || 0);
-                } else if (property === 'pricing.input' || property === 'pricing.prompt') {
-                    return parseFloat(a.pricing?.input || 0) - parseFloat(b.pricing?.input || 0);
-                } else if (property === 'pricing.output' || property === 'pricing.completion') {
-                    return parseFloat(a.pricing?.output || 0) - parseFloat(b.pricing?.output || 0);
-                } else {
-                    return a?.id && b?.id ? a.id.localeCompare(b.id) : 0;
-                }
-            });
-        case chat_completion_sources.ELECTRONHUB:
-            return data.sort((a, b) => {
-                if (property === 'context_length') {
-                    return (b.tokens || 0) - (a.tokens || 0);
-                } else if (property === 'pricing.input' || property === 'pricing.prompt') {
-                    return parseFloat(a.pricing?.input || 0) - parseFloat(b.pricing?.input || 0);
-                } else if (property === 'pricing.output' || property === 'pricing.completion') {
-                    return parseFloat(a.pricing?.output || 0) - parseFloat(b.pricing?.output || 0);
-                } else {
-                    return a?.name && b?.name ? a.name.localeCompare(b.name) : 0;
-                }
-            });
-        case chat_completion_sources.NANOGPT:
-            return data.sort((a, b) => {
-                if (property === 'context_length') {
-                    return (b.context_length || 0) - (a.context_length || 0);
-                } else if (property === 'pricing.input' || property === 'pricing.prompt') {
-                    return parseFloat(a.pricing?.prompt || 0) - parseFloat(b.pricing?.prompt || 0);
-                } else if (property === 'pricing.output' || property === 'pricing.completion') {
-                    return parseFloat(a.pricing?.completion || 0) - parseFloat(b.pricing?.completion || 0);
-                } else {
-                    return a?.name && b?.name ? a.name.localeCompare(b.name) : 0;
-                }
-            });
-        case chat_completion_sources.AIMLAPI:
-            return data.sort((a, b) => {
-                if (property === 'context_length') {
-                    return (b.info?.contextLength || 0) - (a.info?.contextLength || 0);
-                } else {
-                    // No pricing information on the API. Sort alphabetically by name.
-                    return a?.info?.name && b?.info?.name ? a.info.name.localeCompare(b.info.name) : 0;
-                }
-            });
-        default:
-            return data;
-    }
-}
-
-/**
- * Groups models by vendor for the given source. If not supported, returns a map with a single entry containing all models.
- * @param {object[]} array Array of model objects
- * @param {string} source Chat Completion source (e.g., 'openrouter')
- * @returns {Map<string, object[]>} Map of vendor to array of models
- */
-function groupModelsByVendor(array, source) {
-    switch (source) {
-        case chat_completion_sources.OPENROUTER:
-            return array.reduce((acc, curr) => {
-                const vendor = curr.id.split('/')[0];
-                if (!acc.has(vendor)) {
-                    acc.set(vendor, []);
-                }
-                acc.get(vendor).push(curr);
-                return acc;
-            }, new Map());
-        case chat_completion_sources.ELECTRONHUB:
-            return array.reduce((acc, curr) => {
-                const vendor = String(curr?.name || curr?.id || 'Other').split(':')[0].trim() || 'Other';
-                if (!acc.has(vendor)) {
-                    acc.set(vendor, []);
-                }
-                acc.get(vendor).push(curr);
-                return acc;
-            }, new Map());
-        case chat_completion_sources.NANOGPT:
-            return array.reduce((acc, curr) => {
-                const vendorPart = /\//.test(curr.id) ? curr.id.split('/')[0] : curr.id.split('-')[0];
-                const vendor = String(vendorPart?.trim()?.toLowerCase() || 'Other');
-                if (!acc.has(vendor)) {
-                    acc.set(vendor, []);
-                }
-                acc.get(vendor).push(curr);
-                return acc;
-            }, new Map());
-        case chat_completion_sources.CHUTES:
-            return array.reduce((acc, curr) => {
-                const vendor = curr.id.split('/')[0];
-                if (!acc.has(vendor)) {
-                    acc.set(vendor, []);
-                }
-                acc.get(vendor).push(curr);
-                return acc;
-            }, new Map());
-        case chat_completion_sources.AIMLAPI:
-            return array.reduce((acc, curr) => {
-                const vendor = curr.info?.developer || 'Other';
-                if (!acc.has(vendor)) {
-                    acc.set(vendor, []);
-                }
-                acc.get(vendor).push(curr);
-                return acc;
-            }, new Map());
-        default:
-            return new Map([['', array]]);
-    }
-}
-
-/**
- * Get the reasoning effort from chat completion settings
- * @param {ChatCompletionSettings} settings Chat completion settings
- * @param {string} model Model name (optional, used for ElectronHub)
- * @returns {string} Reasoning effort, if present
- */
-function getReasoningEffort(settings = null, model = null) {
-    settings = settings ?? oai_settings;
-    model = model ?? getChatCompletionModel(settings);
-
-    // These sources expect the effort as string.
-    const reasoningEffortSources = [
-        chat_completion_sources.OPENAI,
-        chat_completion_sources.AZURE_OPENAI,
-        chat_completion_sources.CUSTOM,
-        chat_completion_sources.XAI,
-        chat_completion_sources.AIMLAPI,
-        chat_completion_sources.OPENROUTER,
-        chat_completion_sources.POLLINATIONS,
-        chat_completion_sources.PERPLEXITY,
-        chat_completion_sources.COMETAPI,
-        chat_completion_sources.ELECTRONHUB,
-        chat_completion_sources.CHUTES,
-        chat_completion_sources.DEEPSEEK,
-        chat_completion_sources.FIREWORKS,
-    ];
-
-    if (!reasoningEffortSources.includes(settings.chat_completion_source)) {
-        return settings.reasoning_effort;
-    }
-
-    function resolveReasoningEffort() {
-        if (settings.chat_completion_source === chat_completion_sources.DEEPSEEK) {
-            switch (settings.reasoning_effort) {
-                case reasoning_effort_types.auto:
-                    return undefined;
-                case reasoning_effort_types.min:
-                case reasoning_effort_types.low:
-                    return reasoning_effort_types.low;
-                case reasoning_effort_types.max:
-                    return reasoning_effort_types.max;
-                default:
-                    return reasoning_effort_types.high;
-            }
-        }
-
-        if (settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
-            switch (settings.reasoning_effort) {
-                case reasoning_effort_types.auto:
-                    return undefined;
-                case reasoning_effort_types.min:
-                    return reasoning_effort_types.low;
-                default:
-                    return settings.reasoning_effort;
-            }
-        }
-
-        if (settings.chat_completion_source === chat_completion_sources.CUSTOM && /^koboldcpp\/(.+)$/.test(model)) {
-            switch (settings.reasoning_effort) {
-                case reasoning_effort_types.auto:
-                    return undefined;
-                case reasoning_effort_types.min:
-                    return 'minimal';
-                case reasoning_effort_types.low:
-                    return 'low';
-                case reasoning_effort_types.medium:
-                    return 'medium';
-                case reasoning_effort_types.high:
-                    return 'high';
-                case reasoning_effort_types.max:
-                    return 'xhigh';
-                default:
-                    return settings.reasoning_effort;
-            }
-        }
-
-        switch (settings.reasoning_effort) {
-            case reasoning_effort_types.auto:
-                return undefined;
-            case reasoning_effort_types.min:
-                if (chat_completion_sources.OPENROUTER === settings.chat_completion_source && !settings.show_thoughts) {
-                    return 'none';
-                }
-
-                if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)) {
-                    if (/^gpt-5\.(4|5|6)/.test(model)) {
-                        return 'none';
-                    }
-                    if (/^gpt-5/.test(model)) {
-                        return reasoning_effort_types.min;
-                    }
-                }
-
-                return reasoning_effort_types.low;
-            case reasoning_effort_types.max:
-                if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)
-                    && /^gpt-6-astra/.test(model)) {
-                    return reasoning_effort_types.max;
-                }
-                if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source)
-                    && /^gpt-5\.6/.test(model)) {
-                    // GPT-5.6 reserves "max" effort for the Responses API.
-                    return 'xhigh';
-                }
-                return reasoning_effort_types.high;
-            default:
-                return settings.reasoning_effort;
-        }
-    }
-
-    const reasoningEffort = resolveReasoningEffort();
-
-    // Check if the resolved effort supported by the model
-    if (settings.chat_completion_source === chat_completion_sources.ELECTRONHUB) {
-        if (Array.isArray(model_list) && reasoningEffort) {
-            const currentModel = model_list.find(m => m.id === model);
-            const supportedEfforts = currentModel?.metadata?.supported_reasoning_efforts;
-            if (Array.isArray(supportedEfforts) && supportedEfforts.includes(reasoningEffort)) {
-                return reasoningEffort;
-            }
-            return undefined;
-        }
-    }
-
-    return reasoningEffort;
-}
-
-/**
- * Get the verbosity from chat completion settings
- * @param {ChatCompletionSettings} settings Chat completion settings
- * @returns {string} Verbosity level, if present
- */
-function getVerbosity(settings = null) {
-    settings = settings ?? oai_settings;
-
-    if (settings.verbosity === verbosity_levels.auto) {
-        return undefined;
-    }
-
-    // TODO: Adjust verbosity based on model capabilities
-    return settings.verbosity;
-}
+export function getChatCompletionModel(settings = null) { return getNimiModelLabel(); }
 
 /**
  * Build the generation parameter object for an OAI request.
@@ -2689,441 +1646,19 @@ function getVerbosity(settings = null) {
  * @returns {Promise<object>} Final generation parameters object appropriate for the chat completion source
  */
 export async function createGenerationParameters(settings, model, type, messages, { jsonSchema = null } = {}) {
-    // HACK: Filter out null and non-object messages
-    if (!Array.isArray(messages)) {
-        throw new Error('messages must be an array');
-    }
-    messages = messages.filter(msg => msg && typeof msg === 'object');
-
-    // DeepSeek only accepts image blocks in user messages. Media can also be
-    // attached to system and assistant messages by the shared inlining path.
-    const isDeepSeekVisionModel = typeof model === 'string' && model.toLowerCase().includes('deepseek-v4-flash-vision-exp');
-    if (isDeepSeekVisionModel) {
-        messages = messages.flatMap((message) => {
-            if (!['system', 'assistant'].includes(message.role) || !Array.isArray(message.content)) {
-                return [message];
-            }
-
-            const content = message.content.filter(block => block?.type !== 'image_url');
-            return content.length > 0 ? [{ ...message, content }] : [];
-        });
-    }
-
-    // "OpenAI-like" sources
-    const gptSources = [
-        chat_completion_sources.OPENAI,
-        chat_completion_sources.AZURE_OPENAI,
-        chat_completion_sources.OPENROUTER,
-    ];
-
-    // Sources that support the "seed" parameter
-    const seedSupportedSources = [
-        chat_completion_sources.OPENAI,
-        chat_completion_sources.AZURE_OPENAI,
-        chat_completion_sources.OPENROUTER,
-        chat_completion_sources.MISTRALAI,
-        chat_completion_sources.CUSTOM,
-        chat_completion_sources.COHERE,
-        chat_completion_sources.GROQ,
-        chat_completion_sources.ELECTRONHUB,
-        chat_completion_sources.NANOGPT,
-        chat_completion_sources.XAI,
-        chat_completion_sources.POLLINATIONS,
-        chat_completion_sources.AIMLAPI,
-        chat_completion_sources.VERTEXAI,
-        chat_completion_sources.MAKERSUITE,
-        chat_completion_sources.CHUTES,
-    ];
-
-    // Sources that support proxying
-    const proxySupportedSources = [
-        chat_completion_sources.CLAUDE,
-        chat_completion_sources.OPENAI,
-        chat_completion_sources.MISTRALAI,
-        chat_completion_sources.MAKERSUITE,
-        chat_completion_sources.VERTEXAI,
-        chat_completion_sources.DEEPSEEK,
-        chat_completion_sources.XAI,
-        chat_completion_sources.ZAI,
-        chat_completion_sources.MOONSHOT,
-    ];
-
-    // Sources that support logprobs
-    const logprobsSupportedSources = [
-        chat_completion_sources.OPENAI,
-        chat_completion_sources.AZURE_OPENAI,
-        chat_completion_sources.OPENROUTER,
-        chat_completion_sources.CUSTOM,
-        chat_completion_sources.DEEPSEEK,
-        chat_completion_sources.XAI,
-        chat_completion_sources.AIMLAPI,
-        chat_completion_sources.CHUTES,
-    ];
-
-    // Sources that support logit bias
-    const logitBiasSources = [
-        chat_completion_sources.OPENAI,
-        chat_completion_sources.AZURE_OPENAI,
-        chat_completion_sources.OPENROUTER,
-        chat_completion_sources.ELECTRONHUB,
-        chat_completion_sources.CHUTES,
-        chat_completion_sources.CUSTOM,
-    ];
-
-    // Sources that support "n" parameter for multi-swipe
-    const multiswipeSources = [
-        chat_completion_sources.OPENAI,
-        chat_completion_sources.AZURE_OPENAI,
-        chat_completion_sources.CUSTOM,
-        chat_completion_sources.XAI,
-        chat_completion_sources.AIMLAPI,
-        chat_completion_sources.MOONSHOT,
-    ];
-
-    const isO1 = gptSources.includes(settings.chat_completion_source) && ['o1-2024-12-17', 'o1'].includes(model);
-    const isWorkersAIJsonMode = settings.chat_completion_source === chat_completion_sources.WORKERS_AI && jsonSchema;
-    const stream = settings.stream_openai && type !== 'quiet' && !isO1 && !isWorkersAIJsonMode;
-
-    const noMultiSwipeTypes = ['quiet', 'impersonate', 'continue'];
-    const canMultiSwipe = settings.n > 1 && !noMultiSwipeTypes.includes(type) && multiswipeSources.includes(settings.chat_completion_source);
-
-    let logit_bias = {};
-    if (settings.bias_preset_selected
-        && logitBiasSources.includes(settings.chat_completion_source)
-        && Array.isArray(settings.bias_presets[settings.bias_preset_selected])
-        && settings.bias_presets[settings.bias_preset_selected].length) {
-        logit_bias = biasCache || await calculateLogitBias();
-        biasCache = logit_bias;
-    }
-
-    if (Object.keys(logit_bias).length === 0) {
-        logit_bias = undefined;
-    }
-
-    const generate_data = {
-        'type': type,
-        'messages': messages,
-        'model': model,
-        'temperature': Number(settings.temp_openai),
-        'frequency_penalty': Number(settings.freq_pen_openai),
-        'presence_penalty': Number(settings.pres_pen_openai),
-        'top_p': Number(settings.top_p_openai),
-        'max_tokens': settings.openai_max_tokens,
-        'stream': stream,
-        'logit_bias': logit_bias,
-        'stop': getCustomStoppingStrings(openai_max_stop_strings),
-        'chat_completion_source': settings.chat_completion_source,
-        'n': canMultiSwipe ? settings.n : undefined,
-        'user_name': name1,
-        'char_name': name2,
-        'group_names': getGroupNames(),
-        'include_reasoning': Boolean(settings.show_thoughts),
-        'reasoning_effort': getReasoningEffort(settings, model),
-        'enable_web_search': Boolean(settings.enable_web_search),
-        'request_images': Boolean(settings.request_images),
-        'request_image_resolution': String(settings.request_image_resolution),
-        'request_image_aspect_ratio': String(settings.request_image_aspect_ratio),
-        'custom_prompt_post_processing': settings.custom_prompt_post_processing,
-        'verbosity': getVerbosity(settings),
-    };
-
-    if (settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI) {
-        generate_data.azure_base_url = settings.azure_base_url;
-        generate_data.azure_deployment_name = settings.azure_deployment_name;
-        generate_data.azure_api_version = settings.azure_api_version;
-        // Reasoning effort is not supported on some Azure models (e.g. GPT-3.x, GPT-4.x)
-        if (/^gpt-[34]/.test(model)) {
-            delete generate_data.reasoning_effort;
-        }
-    }
-
-    if (!canMultiSwipe && ToolManager.canPerformToolCalls(type, settings, model)) {
-        await ToolManager.registerFunctionToolsOpenAI(generate_data);
-    }
-
-    // Empty array will produce a validation error
-    if (!Array.isArray(generate_data.stop) || !generate_data.stop.length) {
-        delete generate_data.stop;
-    }
-
-    if (settings.reverse_proxy && proxySupportedSources.includes(settings.chat_completion_source)) {
-        await validateReverseProxy();
-        generate_data.reverse_proxy = settings.reverse_proxy;
-        generate_data.proxy_password = settings.proxy_password;
-    }
-
-    // Add logprobs request (max 5 per OpenAI docs)
-    const useLogprobs = !!power_user.request_token_probabilities;
-    if (useLogprobs && logprobsSupportedSources.includes(settings.chat_completion_source)) {
-        generate_data.logprobs = 5;
-    }
-
-    // Remove logit bias/logprobs/stop-strings if not supported by the model
-    const isVision = (m) => ['gpt', 'vision'].every(x => typeof m === 'string' && m.includes(x));
-    if (gptSources.includes(settings.chat_completion_source) && isVision(model)) {
-        delete generate_data.logit_bias;
-        delete generate_data.stop;
-        delete generate_data.logprobs;
-    }
-    if (gptSources.includes(settings.chat_completion_source) && /gpt-4.5/.test(model)) {
-        delete generate_data.logprobs;
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.CLAUDE) {
-        generate_data.top_k = Number(settings.top_k_openai);
-        generate_data.use_sysprompt = settings.use_sysprompt;
-        generate_data.stop = getCustomStoppingStrings(); // Claude shouldn't have limits on stop strings.
-        // Don't add a prefill on quiet gens (summarization) and when using continue prefill.
-        if (type !== 'quiet' && !(type === 'continue' && settings.continue_prefill)) {
-            generate_data.assistant_prefill = type === 'impersonate'
-                ? substituteParams(settings.assistant_impersonation)
-                : substituteParams(settings.assistant_prefill);
-        }
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.OPENROUTER) {
-        generate_data.top_k = Number(settings.top_k_openai);
-        generate_data.min_p = Number(settings.min_p_openai);
-        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
-        generate_data.top_a = Number(settings.top_a_openai);
-        generate_data.use_fallback = settings.openrouter_use_fallback;
-        generate_data.provider = settings.openrouter_providers;
-        generate_data.quantizations = settings.openrouter_quantizations;
-        generate_data.allow_fallbacks = settings.openrouter_allow_fallbacks;
-        generate_data.middleout = settings.openrouter_middleout;
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.NANOGPT) {
-        generate_data.nanogpt_provider = settings.nanogpt_provider;
-        generate_data.nanogpt_payg_override = settings.nanogpt_payg_override;
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.FIREWORKS && type !== 'quiet') {
-        generate_data.chat_id = getCurrentChatId();
-    }
-
-    if ([chat_completion_sources.MAKERSUITE, chat_completion_sources.VERTEXAI].includes(settings.chat_completion_source)) {
-        const stopStringsLimit = 5;
-        generate_data.top_k = Number(settings.top_k_openai);
-        generate_data.stop = getCustomStoppingStrings(stopStringsLimit).slice(0, stopStringsLimit).filter(x => x.length >= 1 && x.length <= 16);
-        generate_data.use_sysprompt = settings.use_sysprompt;
-        if (settings.chat_completion_source === chat_completion_sources.VERTEXAI) {
-            generate_data.vertexai_auth_mode = settings.vertexai_auth_mode;
-            generate_data.vertexai_region = settings.vertexai_region;
-            generate_data.vertexai_express_project_id = settings.vertexai_express_project_id;
-        }
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.MISTRALAI) {
-        generate_data.safe_prompt = false; // already defaults to false, but just incase they change that in the future.
-        generate_data.stop = getCustomStoppingStrings(); // Mistral shouldn't have limits on stop strings.
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.CUSTOM) {
-        generate_data.custom_url = settings.custom_url;
-        generate_data.custom_include_body = substituteParams(settings.custom_include_body);
-        generate_data.custom_exclude_body = substituteParams(settings.custom_exclude_body);
-        generate_data.custom_include_headers = substituteParams(settings.custom_include_headers);
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.COHERE) {
-        // Clamp to 0.01 -> 0.99
-        generate_data.top_p = Math.min(Math.max(Number(settings.top_p_openai), 0.01), 0.99);
-        generate_data.top_k = Number(settings.top_k_openai);
-        // Clamp to 0 -> 1
-        generate_data.frequency_penalty = Math.min(Math.max(Number(settings.freq_pen_openai), 0), 1);
-        generate_data.presence_penalty = Math.min(Math.max(Number(settings.pres_pen_openai), 0), 1);
-        generate_data.stop = getCustomStoppingStrings(5);
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.PERPLEXITY) {
-        generate_data.top_k = Number(settings.top_k_openai);
-        generate_data.frequency_penalty = Number(settings.freq_pen_openai);
-        generate_data.presence_penalty = Number(settings.pres_pen_openai);
-        delete generate_data.stop;
-    }
-
-    // https://console.groq.com/docs/openai
-    if (settings.chat_completion_source === chat_completion_sources.GROQ) {
-        delete generate_data.logprobs;
-        delete generate_data.logit_bias;
-        delete generate_data.top_logprobs;
-        delete generate_data.n;
-    }
-
-    // https://api-docs.deepseek.com/api/create-chat-completion
-    if (settings.chat_completion_source === chat_completion_sources.DEEPSEEK) {
-        generate_data.top_p = generate_data.top_p || Number.EPSILON;
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.XAI) {
-        if (model.includes('grok-3-mini')) {
-            delete generate_data.presence_penalty;
-            delete generate_data.frequency_penalty;
-            delete generate_data.stop;
-        } else {
-            // As of 2025/09/21, only grok-3-mini accepts reasoning_effort
-            delete generate_data.reasoning_effort;
-        }
-
-        if (model.includes('grok-4') || model.includes('grok-code')) {
-            delete generate_data.presence_penalty;
-            delete generate_data.frequency_penalty;
-
-            // grok-4-fast-non-reasoning accepts stop
-            if (!model.includes('grok-4-fast-non-reasoning')) {
-                delete generate_data.stop;
-            }
-        }
-    }
-
-    // https://docs.electronhub.ai/api-reference/chat/completions
-    if (settings.chat_completion_source === chat_completion_sources.ELECTRONHUB) {
-        generate_data.top_k = Number(settings.top_k_openai);
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.CHUTES) {
-        generate_data.min_p = Number(settings.min_p_openai);
-        generate_data.top_k = settings.top_k_openai > 0 ? Number(settings.top_k_openai) : undefined;
-        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
-        generate_data.stop = getCustomStoppingStrings();
-    }
-
-    // https://docs.z.ai/api-reference/llm/chat-completion
-    if (settings.chat_completion_source === chat_completion_sources.ZAI) {
-        generate_data.top_p = generate_data.top_p || 0.01;
-        generate_data.stop = getCustomStoppingStrings(1);
-        generate_data.zai_endpoint = settings.zai_endpoint || ZAI_ENDPOINT.COMMON;
-        delete generate_data.presence_penalty;
-        delete generate_data.frequency_penalty;
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.POLLINATIONS) {
-        generate_data.pollinations_endpoint = settings.pollinations_endpoint || POLLINATIONS_ENDPOINT.AUTHENTICATED;
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.SILICONFLOW) {
-        generate_data.siliconflow_endpoint = settings.siliconflow_endpoint || SILICONFLOW_ENDPOINT.GLOBAL;
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.MINIMAX) {
-        generate_data.minimax_endpoint = settings.minimax_endpoint || MINIMAX_ENDPOINT.GLOBAL;
-        // MiniMax requires temperature in (0.0, 1.0]; zero is rejected.
-        if (Number.isFinite(generate_data.temperature)) {
-            generate_data.temperature = clamp(generate_data.temperature, Number.EPSILON, 1.0);
-        }
-    }
-
-    if (settings.chat_completion_source === chat_completion_sources.WORKERS_AI) {
-        generate_data.workers_ai_account_id = settings.workers_ai_account_id;
-        generate_data.top_k = settings.top_k_openai > 0 ? Math.min(Number(settings.top_k_openai), 50) : undefined;
-        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
-        generate_data.seed = settings.seed >= 1 ? Number(settings.seed) : undefined;
-        generate_data.top_p = Math.max(Number(settings.top_p_openai), 0.001);
-        delete generate_data.n;
-        delete generate_data.logit_bias;
-    }
-
-    // https://docs.nano-gpt.com/api-reference/endpoint/chat-completion#temperature-&-nucleus
-    if (settings.chat_completion_source === chat_completion_sources.NANOGPT) {
-        generate_data.top_k = Number(settings.top_k_openai);
-        generate_data.min_p = Number(settings.min_p_openai);
-        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
-        generate_data.top_a = Number(settings.top_a_openai);
-    }
-
-    // https://platform.moonshot.ai/docs/api/chat#public-service-address
-    if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
-        // >Kimi API is fully compatible with OpenAI's API format
-        if (/kimi-k2.5/.test(model)) {
-            delete generate_data.temperature;
-            delete generate_data.top_p;
-            delete generate_data.frequency_penalty;
-            delete generate_data.presence_penalty;
-        }
-    }
-
-    if (seedSupportedSources.includes(settings.chat_completion_source) && settings.seed >= 0) {
-        generate_data.seed = settings.seed;
-    }
-
-    if ([chat_completion_sources.OPENAI, chat_completion_sources.AZURE_OPENAI].includes(settings.chat_completion_source) && /^(o1|o3|o4)/.test(model) ||
-        (chat_completion_sources.OPENROUTER === settings.chat_completion_source && /^openai\/(o1|o3|o4)/.test(model))) {
-        generate_data.max_completion_tokens = generate_data.max_tokens;
-        delete generate_data.max_tokens;
-        delete generate_data.logprobs;
-        delete generate_data.top_logprobs;
-        delete generate_data.stop;
-        delete generate_data.logit_bias;
-        delete generate_data.temperature;
-        delete generate_data.top_p;
-        delete generate_data.frequency_penalty;
-        delete generate_data.presence_penalty;
-        if (/^(openai\/)?(o1)/.test(model)) {
-            generate_data.messages.forEach((msg) => {
-                if (msg.role === 'system') {
-                    msg.role = 'user';
-                }
-            });
-            delete generate_data.n;
-            delete generate_data.tools;
-            delete generate_data.tool_choice;
-        }
-    }
-
-    if (gptSources.includes(settings.chat_completion_source) && /gpt-5/.test(model)) {
-        generate_data.max_completion_tokens = generate_data.max_tokens;
-        delete generate_data.max_tokens;
-        delete generate_data.logprobs;
-        delete generate_data.top_logprobs;
-        if (/gpt-5-chat-latest/.test(model)) {
-            delete generate_data.tools;
-            delete generate_data.tool_choice;
-        } else if (/gpt-5\.(1|2|3|4)/.test(model) && !/chat-latest/.test(model) && !generate_data.reasoning_effort) {
-            delete generate_data.frequency_penalty;
-            delete generate_data.presence_penalty;
-            delete generate_data.logit_bias;
-            delete generate_data.stop;
-        } else {
-            delete generate_data.temperature;
-            delete generate_data.top_p;
-            delete generate_data.frequency_penalty;
-            delete generate_data.presence_penalty;
-            delete generate_data.logit_bias;
-            delete generate_data.stop;
-        }
-    }
-
-    if (gptSources.includes(settings.chat_completion_source) && /gpt-6-astra/.test(model)) {
-        generate_data.max_completion_tokens = generate_data.max_tokens;
-        delete generate_data.max_tokens;
-        delete generate_data.temperature;
-        delete generate_data.top_p;
-        delete generate_data.logprobs;
-        delete generate_data.top_logprobs;
-    }
-
-    // Claude Fable / Claude 5 models removed sampling parameters and reject them with HTTP 400,
-    // including via OpenAI-compatible proxies. Unanchored to also match prefixed ids
-    // like 'anthropic/claude-fable-5' or 'anthropic/claude-opus-5'.
-    if (/claude-(fable|opus-5|sonnet-5)/.test(model)) {
-        delete generate_data.temperature;
-        delete generate_data.top_p;
-        delete generate_data.top_k;
-        delete generate_data.frequency_penalty;
-        delete generate_data.presence_penalty;
-        // Keep reasoning_effort for the native Claude source, where the backend maps it to
-        // adaptive thinking; proxies may translate it into a thinking budget that these models reject.
-        if (settings.chat_completion_source !== chat_completion_sources.CLAUDE) {
-            delete generate_data.reasoning_effort;
-        }
-    }
-
-    if (jsonSchema) {
-        generate_data.json_schema = jsonSchema;
-    }
-
-    return { generate_data, stream, canMultiSwipe };
+    if (!Array.isArray(messages)) throw new Error('messages must be an array');
+    if (type === 'continue' && settings.continue_prefill) throw new Error('Exact assistant prefill is not admitted by this Nimi workflow. Continue remains available with the original continuation instruction setting.');
+    const stream = Boolean(settings.stream_openai && type !== 'quiet');
+    const n = ['quiet', 'impersonate', 'continue'].includes(type) ? 1 : Number(settings.n || 1);
+    const generate_data = { type, messages, stream, n,
+        ...nimiRequestParameters(settings),
+        stop: getCustomStoppingStrings(), ...(jsonSchema ? { json_schema: jsonSchema } : {}) };
+    const executeTools = n === 1 && ToolManager.canPerformToolCalls(type, settings, model);
+    // Quiet/continue/candidate requests still need declared inert history.
+    // A tool declaration never authorizes a callback in these request types.
+    if (executeTools) await ToolManager.registerFunctionToolsOpenAI(generate_data);
+    if (!executeTools && generate_data.tools?.length) generate_data.tool_choice = 'none';
+    return { generate_data, stream, canMultiSwipe: n > 1 };
 }
 
 /**
@@ -3136,78 +1671,10 @@ export async function createGenerationParameters(settings, model, type, messages
  * @throws {Error}
  */
 async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } = {}) {
-    // Provide default abort signal
-    if (!signal) {
-        signal = new AbortController().signal;
-    }
-
-    const model = getChatCompletionModel(oai_settings);
-    const { generate_data, stream, canMultiSwipe } = await createGenerationParameters(oai_settings, model, type, messages, { jsonSchema });
+    const model = getNimiModelLabel();
+    const { generate_data } = await createGenerationParameters(oai_settings, model, type, messages, { jsonSchema });
     await eventSource.emit(event_types.CHAT_COMPLETION_SETTINGS_READY, generate_data);
-
-    const generate_url = '/api/backends/chat-completions/generate';
-    const response = await fetch(generate_url, {
-        method: 'POST',
-        body: JSON.stringify(generate_data),
-        headers: getRequestHeaders(),
-        signal: signal,
-    });
-
-    if (!response.ok) {
-        tryParseStreamingError(response, await response.text());
-        throw new Error(`Got response status ${response.status}`);
-    }
-    if (stream) {
-        const eventStream = getEventSourceStream();
-        response.body.pipeThrough(eventStream);
-        const reader = eventStream.readable.getReader();
-        return async function* streamData() {
-            let text = '';
-            const swipes = [];
-            const toolCalls = [];
-            const state = { reasoning: '', images: [], signature: '', toolSignatures: {} };
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) return;
-                const rawData = value.data;
-                if (rawData === '[DONE]') return;
-                tryParseStreamingError(response, rawData);
-                const parsed = JSON.parse(rawData);
-
-                if (canMultiSwipe && Array.isArray(parsed?.choices) && parsed?.choices?.[0]?.index > 0) {
-                    const swipeIndex = parsed.choices[0].index - 1;
-                    // FIXME: state.reasoning should be an array to support multi-swipe
-                    swipes[swipeIndex] = (swipes[swipeIndex] || '') + getStreamingReply(parsed, state, { overrideShowThoughts: false });
-                } else {
-                    text += getStreamingReply(parsed, state);
-                }
-
-                ToolManager.parseToolCalls(toolCalls, parsed, state.toolSignatures);
-
-                yield { text, swipes: swipes, logprobs: parseChatCompletionLogprobs(parsed), toolCalls: toolCalls, state: state };
-            }
-        };
-    } else {
-        const data = await response.json();
-
-        checkQuotaError(data);
-        checkModerationError(data);
-
-        if (data.error) {
-            const message = getChatCompletionErrorMessage(data, response);
-            toastr.error(message, t`API returned an error`);
-            throw new Error(message);
-        }
-
-        if (type !== 'quiet') {
-            const logprobs = parseChatCompletionLogprobs(data);
-            // Delay is required to allow the active message to be updated to
-            // the one we are generating (happens right after sendOpenAIRequest)
-            delay(1).then(() => saveLogprobsForActiveMessage(logprobs, null));
-        }
-
-        return data;
-    }
+    return sendNimiText(type, generate_data, signal);
 }
 
 /**
@@ -3303,118 +1770,6 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
     } else {
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
     }
-}
-
-/**
- * parseChatCompletionLogprobs converts the response data returned from a chat
- * completions-like source into an array of TokenLogprobs found in the response.
- * @param {Object} data - response data from a chat completions-like source
- * @returns {import('./logprobs.js').TokenLogprobs[] | null} converted logprobs
- */
-function parseChatCompletionLogprobs(data) {
-    if (!data) {
-        return null;
-    }
-
-    switch (oai_settings.chat_completion_source) {
-        case chat_completion_sources.AIMLAPI:
-            return Object.keys(data?.choices?.[0]?.logprobs ?? {}).includes('content')
-                ? parseOpenAIChatLogprobs(data.choices[0]?.logprobs)
-                : parseOpenAITextLogprobs(data.choices[0]?.logprobs);
-        case chat_completion_sources.OPENAI:
-        case chat_completion_sources.AZURE_OPENAI:
-        case chat_completion_sources.OPENROUTER:
-        case chat_completion_sources.DEEPSEEK:
-        case chat_completion_sources.XAI:
-        case chat_completion_sources.CUSTOM:
-        case chat_completion_sources.CHUTES:
-            if (!data.choices?.length) {
-                return null;
-            }
-            // OpenAI Text Completion API is treated as a chat completion source
-            // by SillyTavern, hence its presence in this function.
-            return textCompletionModels.includes(getChatCompletionModel())
-                ? parseOpenAITextLogprobs(data.choices[0]?.logprobs)
-                : parseOpenAIChatLogprobs(data.choices[0]?.logprobs);
-        default:
-        // implement other chat completion sources here
-    }
-    return null;
-}
-
-/**
- * parseOpenAIChatLogprobs receives a `logprobs` response from OpenAI's chat
- * completion API and converts into the structure used by the Token Probabilities
- * view.
- * @param {{content: { token: string, logprob: number, top_logprobs: { token: string, logprob: number }[] }[]}} logprobs
- * @returns {import('./logprobs.js').TokenLogprobs[] | null} converted logprobs
- */
-function parseOpenAIChatLogprobs(logprobs) {
-    const { content } = logprobs ?? {};
-
-    if (!Array.isArray(content)) {
-        return null;
-    }
-
-    /** @type {(x: { token: string, logprob: number }) => [string, number]} */
-    const toTuple = (x) => [x.token, x.logprob];
-
-    return content.map(({ token, logprob, top_logprobs = [] }) => {
-        // Add the chosen token to top_logprobs if it's not already there, then
-        // convert to a list of [token, logprob] pairs
-        const chosenTopToken = top_logprobs.some((top) => token === top.token);
-        /** @type {import('./logprobs.js').Candidate[]} */
-        const topLogprobs = chosenTopToken
-            ? top_logprobs.map(toTuple)
-            : [...top_logprobs.map(toTuple), [token, logprob]];
-        return { token, topLogprobs };
-    });
-}
-
-/**
- * parseOpenAITextLogprobs receives a `logprobs` response from OpenAI's text
- * completion API and converts into the structure used by the Token Probabilities
- * view.
- * @param {{tokens: string[], token_logprobs: number[], top_logprobs: { token: string, logprob: number }[][]}} logprobs
- * @returns {import('./logprobs.js').TokenLogprobs[] | null} converted logprobs
- */
-function parseOpenAITextLogprobs(logprobs) {
-    const { tokens, token_logprobs, top_logprobs } = logprobs ?? {};
-
-    if (!Array.isArray(tokens)) {
-        return null;
-    }
-
-    return tokens.map((token, i) => {
-        // Add the chosen token to top_logprobs if it's not already there, then
-        // convert to a list of [token, logprob] pairs
-        /** @type {any[]} */
-        const topLogprobs = top_logprobs[i] ? Object.entries(top_logprobs[i]) : [];
-        const chosenTopToken = topLogprobs.some(([topToken]) => token === topToken);
-        if (!chosenTopToken) {
-            topLogprobs.push([token, token_logprobs[i]]);
-        }
-        return { token, topLogprobs };
-    });
-}
-
-async function calculateLogitBias() {
-    const body = JSON.stringify(oai_settings.bias_presets[oai_settings.bias_preset_selected]);
-    let result = {};
-
-    try {
-        const reply = await fetch(`/api/backends/chat-completions/bias?model=${getTokenizerModel()}`, {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body,
-        });
-
-        result = await reply.json();
-    } catch (err) {
-        result = {};
-        console.error(err);
-    }
-    return result;
 }
 
 class TokenHandler {
@@ -3840,6 +2195,8 @@ class MessageCollection {
                     ...(message.role === 'tool' && { tool_call_id: message.identifier }),
                     ...(message.signature && { signature: message.signature }),
                     ...(message.reasoning && { reasoning: message.reasoning }),
+                    ...(message.nimi && { nimiReceiptId: message.nimi.id }),
+                    ...(message.nimiToolResult && { nimiToolResult: message.nimiToolResult }),
                 });
             }
             return acc;
@@ -4131,6 +2488,8 @@ export class ChatCompletion {
                     ...(item.role === 'tool' ? { tool_call_id: item.identifier } : {}),
                     ...(item.signature ? { signature: item.signature } : {}),
                     ...(item.reasoning ? { reasoning: item.reasoning } : {}),
+                    ...(item.nimi ? { nimiReceiptId: item.nimi.id } : {}),
+                    ...(item.nimiToolResult ? { nimiToolResult: item.nimiToolResult } : {}),
                 };
                 chat.push(message);
             } else {
@@ -4318,6 +2677,7 @@ function migrateChatCompletionSettings(settings) {
  * @param {ChatCompletionSettings} settings Saved settings from backend
  */
 function loadOpenAISettings(data, settings) {
+    const parameterOverrides = readNimiParameterOverrides(settings);
     openai_setting_names = data.openai_setting_names;
     openai_settings = data.openai_settings;
     openai_settings.forEach(function (item, i) {
@@ -4338,7 +2698,7 @@ function loadOpenAISettings(data, settings) {
     migrateChatCompletionSettings(settings);
 
     for (const key of Object.keys(default_settings)) {
-        oai_settings[key] = settings[key] ?? default_settings[key];
+        oai_settings[key] = key === 'nimi_parameter_overrides' ? parameterOverrides : settings[key] ?? default_settings[key];
         const settingToUpdate = Object.values(settingsToUpdate).find(([_, k]) => k === key);
         if (settingToUpdate) {
             const [selector] = settingToUpdate;
@@ -4393,6 +2753,8 @@ function loadOpenAISettings(data, settings) {
     }
     $('#openai_logit_bias_preset').trigger('change');
 
+    oai_settings.chat_completion_source = chat_completion_sources.NIMI;
+    $('#chat_completion_source').empty().append(new Option('Nimi', chat_completion_sources.NIMI)).val(chat_completion_sources.NIMI);
     setNamesBehaviorControls();
     setContinuePostfixControls();
     setToolReasoningControls();
@@ -4457,121 +2819,12 @@ function setToolReasoningControls() {
 }
 
 async function getStatusOpen() {
-    const noValidateSources = [
-        chat_completion_sources.CLAUDE,
-        chat_completion_sources.AI21,
-        chat_completion_sources.VERTEXAI,
-        chat_completion_sources.PERPLEXITY,
-        chat_completion_sources.ZAI,
-        chat_completion_sources.MINIMAX,
-    ];
-    if (noValidateSources.includes(oai_settings.chat_completion_source)) {
-        let status = t`Key saved; press \"Test Message\" to verify.`;
-        setOnlineStatus(status);
-        updateFeatureSupportFlags();
-        return resultCheckStatus();
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.CUSTOM && !isValidUrl(oai_settings.custom_url)) {
-        console.debug('Invalid endpoint URL of Custom OpenAI API:', oai_settings.custom_url);
-        setOnlineStatus(t`Invalid endpoint URL. Requests may fail.`);
-        return resultCheckStatus();
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI && !isValidUrl(oai_settings.azure_base_url)) {
-        console.debug('Invalid endpoint URL of Azure OpenAI API:', oai_settings.azure_base_url);
-        setOnlineStatus(t`Invalid Azure endpoint URL. Requests may fail.`);
-        return resultCheckStatus();
-    }
-
-    let data = {
-        reverse_proxy: oai_settings.reverse_proxy,
-        proxy_password: oai_settings.proxy_password,
-        chat_completion_source: oai_settings.chat_completion_source,
-    };
-
-    const validateProxySources = [
-        chat_completion_sources.CLAUDE,
-        chat_completion_sources.OPENAI,
-        chat_completion_sources.MISTRALAI,
-        chat_completion_sources.MAKERSUITE,
-        chat_completion_sources.VERTEXAI,
-        chat_completion_sources.DEEPSEEK,
-        chat_completion_sources.XAI,
-        chat_completion_sources.ZAI,
-        chat_completion_sources.MOONSHOT,
-    ];
-    if (oai_settings.reverse_proxy && validateProxySources.includes(oai_settings.chat_completion_source)) {
-        await validateReverseProxy();
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.CUSTOM) {
-        $('.model_custom_select').empty();
-        data.custom_url = oai_settings.custom_url;
-        data.custom_include_headers = substituteParams(oai_settings.custom_include_headers);
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI) {
-        data.azure_base_url = oai_settings.azure_base_url;
-        data.azure_deployment_name = oai_settings.azure_deployment_name;
-        data.azure_api_version = oai_settings.azure_api_version;
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.SILICONFLOW) {
-        data.siliconflow_endpoint = oai_settings.siliconflow_endpoint;
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.MINIMAX) {
-        data.minimax_endpoint = oai_settings.minimax_endpoint;
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.WORKERS_AI) {
-        data.workers_ai_account_id = oai_settings.workers_ai_account_id;
-    }
-
-    if (oai_settings.chat_completion_source === chat_completion_sources.POLLINATIONS) {
-        data.pollinations_endpoint = oai_settings.pollinations_endpoint || POLLINATIONS_ENDPOINT.AUTHENTICATED;
-    }
-
-    const canBypass = (oai_settings.chat_completion_source === chat_completion_sources.OPENAI && oai_settings.bypass_status_check) || oai_settings.chat_completion_source === chat_completion_sources.CUSTOM;
-    if (canBypass) {
-        setOnlineStatus(t`Status check bypassed`);
-    }
-
     try {
-        const response = await fetch('/api/backends/chat-completions/status', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify(data),
-            signal: abortStatusCheck.signal,
-            cache: 'no-cache',
-        });
-
-        if (!response.ok) {
-            throw new Error(response.statusText);
-        }
-
-        const responseData = await response.json();
-
-        if ('data' in responseData && Array.isArray(responseData.data)) {
-            saveModelList(responseData.data);
-        }
-        if (!('error' in responseData)) {
-            setOnlineStatus(t`Valid`);
-        }
-        if (responseData.bypass) {
-            setOnlineStatus(t`Status check bypassed`);
-        }
-    } catch (error) {
-        console.error(error);
-
-        if (!canBypass) {
-            setOnlineStatus('no_connection');
-        }
-    }
-
-    updateFeatureSupportFlags();
-    return resultCheckStatus();
+        await refreshNimiConfig();
+        const selection = getNimiSelection();
+        setOnlineStatus(selection?.state === 'ready' ? getNimiModelLabel() : 'no_connection');
+    } catch { setOnlineStatus('no_connection'); }
+    return;
 }
 
 /**
@@ -4671,14 +2924,13 @@ function onLogitBiasPresetChange() {
         },
     });
 
-    biasCache = undefined;
     saveSettingsDebounced();
 }
 
 function createNewLogitBiasEntry() {
     const entry = { id: uuidv4(), text: '', value: 0 };
     oai_settings.bias_presets[oai_settings.bias_preset_selected].push(entry);
-    biasCache = undefined;
+
     createLogitBiasListItem(entry);
     saveSettingsDebounced();
 }
@@ -4692,7 +2944,7 @@ function createLogitBiasListItem(entry) {
     template.data('id', id);
     template.find('.openai_logit_bias_text').val(entry.text).on('input', function () {
         entry.text = String($(this).val());
-        biasCache = undefined;
+
         saveSettingsDebounced();
     });
     template.find('.openai_logit_bias_value').val(entry.value).on('input', function () {
@@ -4711,7 +2963,7 @@ function createLogitBiasListItem(entry) {
         }
 
         entry.value = value;
-        biasCache = undefined;
+
         saveSettingsDebounced();
     });
     template.find('.openai_logit_bias_remove').on('click', function () {
@@ -4995,7 +3247,6 @@ async function onLogitBiasPresetDeleteClick() {
         $('#openai_logit_bias_preset').trigger('change');
     }
 
-    biasCache = undefined;
     saveSettingsDebounced();
 }
 
@@ -5053,6 +3304,7 @@ function onSettingsPresetChange() {
                 oai_settings.extensions = preset.extensions || {};
                 continue;
             }
+            if (key === 'nimi_parameter_overrides') continue;
 
             if (preset[key] !== undefined) {
                 if (isCheckbox) {
@@ -5063,6 +3315,7 @@ function onSettingsPresetChange() {
                 oai_settings[setting] = preset[key];
             }
         }
+        oai_settings.nimi_parameter_overrides = readNimiParameterOverrides(preset, { preset: true });
 
         // These cannot be changed via preset if unbound to connection
         if (oai_settings.bind_preset_to_connection) {
@@ -5469,8 +3722,15 @@ function getNanoGptMaxContext(model, isUnlocked) {
     return max_128k;
 }
 
+export function refreshNimiContextBudget() {
+    // ST owns this author-selected budget. Runtime separately admits the
+    // actual request; a provider-name heuristic cannot supply its capacity.
+    const limit = oai_settings.max_context_unlocked ? unlocked_max : Math.max(max_4k, oai_settings.openai_max_context);
+    $('#openai_max_context, #openai_max_context_counter').attr('max', limit).attr('title', 'SillyTavern prompt budget. Nimi validates the actual request and selected resource separately.');
+}
+
 async function onModelChange() {
-    biasCache = undefined;
+    if (oai_settings.chat_completion_source === 'nimi') { refreshNimiContextBudget(); return; }
     let value = String($(this).val() || '');
 
     // Skip setting the context size for sources that get it from external APIs
@@ -6224,139 +4484,7 @@ async function onCustomizeParametersClick() {
  * @returns {boolean} True if the model supports image inlining
  */
 export function isImageInliningSupported() {
-    if (main_api !== 'openai') {
-        return false;
-    }
-
-    if (!oai_settings.media_inlining) {
-        return false;
-    }
-
-    // gultra just isn't being offered as multimodal, thanks google.
-    const visionSupportedModels = [
-        // OpenAI
-        'chatgpt-4o-latest',
-        'gpt-4-turbo',
-        'gpt-4-vision',
-        'gpt-4.1',
-        'gpt-4.5-preview',
-        'gpt-4o',
-        'gpt-6-astra',
-        'gpt-5',
-        'o1',
-        'o3',
-        'o4-mini',
-        // Claude
-        'claude-3',
-        'claude-fable',
-        'claude-opus-4',
-        'claude-opus-5',
-        'claude-sonnet-4',
-        'claude-sonnet-5',
-        'claude-haiku-4',
-        // Cohere
-        'c4ai-aya-vision',
-        'command-a-vision',
-        // Google AI Studio
-        'gemini-2.0',
-        'gemini-2.5',
-        'gemini-3',
-        'gemini-exp-1206',
-        'learnlm',
-        'gemini-robotics',
-        'gemma-3-27b',
-        'gemma-3-12b',
-        'gemma-3-4b',
-        'gemma-4',
-        // MistralAI
-        'mistral-small-2503',
-        'mistral-small-2506',
-        'mistral-small-latest',
-        'mistral-medium-latest',
-        'mistral-medium-2505',
-        'mistral-medium-2508',
-        'pixtral',
-        // xAI (Grok)
-        'grok-4',
-        'grok-2-vision',
-        // Moonshot
-        'moonshot-v1-8k-vision-preview',
-        'moonshot-v1-32k-vision-preview',
-        'moonshot-v1-128k-vision-preview',
-        'kimi-k2.5',
-        'kimi-latest',
-        // DeepSeek
-        'deepseek-v4-flash-vision-exp',
-        // Z.AI (GLM)
-        'glm-4.5v',
-        'glm-4.6v',
-        'glm-5v-turbo',
-        'autoglm-phone',
-        // SiliconFlow
-        'Qwen/Qwen3-VL-32B-Instruct',
-        'Qwen/Qwen3-VL-8B-Instruct',
-        'Qwen/Qwen3-VL-235B-A22B-Instruct',
-        'Qwen/Qwen3-VL-30B-A3B-Instruct',
-        'zai-org/GLM-4.5V',
-    ];
-
-    switch (oai_settings.chat_completion_source) {
-        case chat_completion_sources.OPENAI:
-        case chat_completion_sources.AZURE_OPENAI: {
-            const modelToCheck = oai_settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI
-                ? oai_settings.azure_openai_model
-                : oai_settings.openai_model;
-            return visionSupportedModels.some(model =>
-                modelToCheck.includes(model)
-                && ['gpt-4-turbo-preview', 'o1-mini', 'o3-mini'].some(x => !modelToCheck.includes(x)),
-            );
-        }
-        case chat_completion_sources.MAKERSUITE:
-            return visionSupportedModels.some(model => oai_settings.google_model.includes(model));
-        case chat_completion_sources.VERTEXAI:
-            return visionSupportedModels.some(model => oai_settings.vertexai_model.includes(model));
-        case chat_completion_sources.CLAUDE:
-            return visionSupportedModels.some(model => oai_settings.claude_model.includes(model));
-        case chat_completion_sources.OPENROUTER:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.openrouter_model)?.architecture?.input_modalities?.includes('image'));
-        case chat_completion_sources.CUSTOM:
-            return true;
-        case chat_completion_sources.MISTRALAI:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.mistralai_model)?.capabilities?.vision);
-        case chat_completion_sources.COHERE:
-            return visionSupportedModels.some(model => oai_settings.cohere_model.includes(model));
-        case chat_completion_sources.XAI:
-            // TODO: xAI's /models endpoint doesn't return modality info
-            return visionSupportedModels.some(model => oai_settings.xai_model.includes(model));
-        case chat_completion_sources.AIMLAPI:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.aimlapi_model)?.features?.includes('openai/chat-completion.vision'));
-        case chat_completion_sources.CHUTES:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.chutes_model)?.input_modalities?.includes('image'));
-        case chat_completion_sources.ELECTRONHUB:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.electronhub_model)?.metadata?.vision);
-        case chat_completion_sources.POLLINATIONS:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.pollinations_model)?.input_modalities?.includes('image'));
-        case chat_completion_sources.COMETAPI:
-            return true;
-        case chat_completion_sources.MOONSHOT:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.moonshot_model)?.supports_image_in);
-        case chat_completion_sources.NANOGPT:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.nanogpt_model)?.capabilities?.vision);
-        case chat_completion_sources.ZAI:
-            return visionSupportedModels.some(model => oai_settings.zai_model.includes(model));
-        case chat_completion_sources.SILICONFLOW:
-            return visionSupportedModels.some(model => oai_settings.siliconflow_model.includes(model));
-        case chat_completion_sources.DEEPSEEK:
-            return visionSupportedModels.some(model => oai_settings.deepseek_model.includes(model));
-        case chat_completion_sources.WORKERS_AI: {
-            const waiModel = Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.workers_ai_model);
-            return Boolean(waiModel && Array.isArray(waiModel.properties) && waiModel.properties.some(p => p.property_id === 'vision' && p.value === 'true'));
-        }
-        case chat_completion_sources.FIREWORKS:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.fireworks_model)?.supports_image_input);
-        default:
-            return false;
-    }
+    return main_api === 'openai' && oai_settings.media_inlining && nimiSupports('input.image');
 }
 
 /**
@@ -6364,39 +4492,7 @@ export function isImageInliningSupported() {
  * @returns {boolean} True if the model supports video inlining
  */
 export function isVideoInliningSupported() {
-    if (main_api !== 'openai') {
-        return false;
-    }
-
-    if (!oai_settings.media_inlining) {
-        return false;
-    }
-
-    const videoSupportedModels = [
-        // Gemini
-        'gemini-2.0',
-        'gemini-2.5',
-        'gemini-exp-1206',
-        'gemini-3',
-        'gemma-4',
-        // Z.AI (GLM)
-        'glm-4.5v',
-        'glm-4.6v',
-        'glm-5v-turbo',
-    ];
-
-    switch (oai_settings.chat_completion_source) {
-        case chat_completion_sources.MAKERSUITE:
-            return videoSupportedModels.some(model => oai_settings.google_model.includes(model));
-        case chat_completion_sources.VERTEXAI:
-            return videoSupportedModels.some(model => oai_settings.vertexai_model.includes(model));
-        case chat_completion_sources.OPENROUTER:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.openrouter_model)?.architecture?.input_modalities?.includes('video'));
-        case chat_completion_sources.ZAI:
-            return videoSupportedModels.some(model => oai_settings.zai_model.includes(model));
-        default:
-            return false;
-    }
+    return main_api === 'openai' && oai_settings.media_inlining && nimiSupports('input.video');
 }
 
 /**
@@ -6404,41 +4500,7 @@ export function isVideoInliningSupported() {
  * @returns {boolean} True if the model supports audio inlining
  */
 export function isAudioInliningSupported() {
-    if (main_api !== 'openai') {
-        return false;
-    }
-
-    if (!oai_settings.media_inlining) {
-        return false;
-    }
-
-    const audioSupportedModels = [
-        'gemini-2.0',
-        'gemini-2.5',
-        'gemini-3',
-        'gemini-exp-1206',
-        'gpt-4o-audio',
-        'gpt-4o-realtime',
-        'gpt-4o-mini-audio',
-        'gpt-4o-mini-realtime',
-        'gpt-audio',
-        'gpt-realtime',
-    ];
-
-    switch (oai_settings.chat_completion_source) {
-        case chat_completion_sources.OPENAI:
-            return audioSupportedModels.some(model => oai_settings.openai_model.includes(model));
-        case chat_completion_sources.MAKERSUITE:
-            return audioSupportedModels.some(model => oai_settings.google_model.includes(model));
-        case chat_completion_sources.VERTEXAI:
-            return audioSupportedModels.some(model => oai_settings.vertexai_model.includes(model));
-        case chat_completion_sources.OPENROUTER:
-            return (Array.isArray(model_list) && model_list.find(m => m.id === oai_settings.openrouter_model)?.architecture?.input_modalities?.includes('audio'));
-        case chat_completion_sources.CUSTOM:
-            return true;
-        default:
-            return false;
-    }
+    return main_api === 'openai' && oai_settings.media_inlining && nimiSupports('input.audio');
 }
 
 /**
@@ -6979,7 +5041,8 @@ export function initOpenAI() {
     $('#oai_max_context_unlocked').on('input', function (_e, data) {
         oai_settings.max_context_unlocked = !!$(this).prop('checked');
         if (data?.source !== 'preset') {
-            $('#chat_completion_source').trigger('change');
+            if (oai_settings.chat_completion_source === 'nimi') refreshNimiContextBudget();
+            else $('#chat_completion_source').trigger('change');
         }
         saveSettingsDebounced();
     });
@@ -7393,4 +5456,253 @@ export function initOpenAI() {
     $('#openai_proxy_access_key_show').on('click', onProxyAccessKeyShowClick);
     $('#customize_additional_parameters').on('click', onCustomizeParametersClick);
     $('#openai_proxy_preset').on('change', onProxyPresetChange);
+}
+
+
+function getOpenRouterModelTemplate(option) {
+    const model = model_list.find(x => x.id === option?.element?.value);
+
+    if (!option.id || !model) {
+        return option.text;
+    }
+
+    let tokens_dollar = Number(1 / (1000 * model.pricing?.prompt));
+    let tokens_rounded = (Math.round(tokens_dollar * 1000) / 1000).toFixed(0);
+
+    const price = 0 === Number(model.pricing?.prompt) ? 'Free' : `${tokens_rounded}k t/$ `;
+
+    return $((`
+        <div class="flex-container flexFlowColumn" title="${DOMPurify.sanitize(model.id)}">
+            <div><strong>${DOMPurify.sanitize(model.name)}</strong> | ${model.context_length} ctx | <small>${price}</small></div>
+        </div>
+    `));
+}
+
+
+function calculateOpenRouterCost() {
+    if (oai_settings.chat_completion_source !== chat_completion_sources.OPENROUTER) {
+        return;
+    }
+
+    let cost = 'Unknown';
+    const model = model_list.find(x => x.id === oai_settings.openrouter_model);
+
+    if (model?.pricing) {
+        const completionCost = Number(model.pricing.completion);
+        const promptCost = Number(model.pricing.prompt);
+        const completionTokens = oai_settings.openai_max_tokens;
+        const promptTokens = (oai_settings.openai_max_context - completionTokens);
+        const totalCost = (completionCost * completionTokens) + (promptCost * promptTokens);
+        if (!isNaN(totalCost)) {
+            cost = '$' + totalCost.toFixed(3);
+        }
+    }
+
+    if (oai_settings.enable_web_search) {
+        const webSearchCost = (0.02).toFixed(2);
+        cost = t`${cost} + $${webSearchCost}`;
+    }
+
+    $('#openrouter_max_prompt_cost').text(cost);
+}
+
+
+function getElectronHubModelTemplate(option) {
+    const model = model_list.find(x => x.id === option?.element?.value);
+
+    if (!option.id || !model) {
+        return option.text;
+    }
+
+    const inputPrice = model.pricing?.input;
+    const outputPrice = model.pricing?.output;
+    const price = inputPrice && outputPrice ? `$${inputPrice}/$${outputPrice} in/out Mtoken` : 'Unknown';
+
+    const visionIcon = model.metadata?.vision ? '<i class="fa-solid fa-eye fa-sm" title="This model supports vision"></i>' : '';
+    const reasoningIcon = model.metadata?.reasoning ? '<i class="fa-solid fa-brain fa-sm" title="This model supports reasoning"></i>' : '';
+    const toolCallsIcon = model.metadata?.function_call ? '<i class="fa-solid fa-wrench fa-sm" title="This model supports function tools"></i>' : '';
+    const premiumIcon = model?.premium_model ? '<i class="fa-solid fa-crown fa-sm" title="This model requires a subscription"></i>' : '';
+
+    const iconsContainer = document.createElement('span');
+    iconsContainer.insertAdjacentHTML('beforeend', visionIcon);
+    iconsContainer.insertAdjacentHTML('beforeend', reasoningIcon);
+    iconsContainer.insertAdjacentHTML('beforeend', toolCallsIcon);
+    iconsContainer.insertAdjacentHTML('beforeend', premiumIcon);
+
+    const capabilities = (iconsContainer.children.length) ? ` | ${iconsContainer.innerHTML}` : '';
+
+    return $((`
+        <div class="flex-container alignItemsBaseline" title="${DOMPurify.sanitize(model.id)}">
+            <strong>${DOMPurify.sanitize(model.name)}</strong> | ${model.tokens} ctx | <small>${price}</small>${capabilities}
+        </div>
+    `));
+}
+
+
+function calculateElectronHubCost() {
+    if (oai_settings.chat_completion_source !== chat_completion_sources.ELECTRONHUB) {
+        return;
+    }
+
+    let cost = 'Unknown';
+    const model = model_list.find(x => x.id === oai_settings.electronhub_model);
+
+    if (model?.pricing) {
+        const outputCost = Number(model.pricing.output / 1000000);
+        const inputCost = Number(model.pricing.input / 1000000);
+        const outputTokens = oai_settings.openai_max_tokens;
+        const inputTokens = (oai_settings.openai_max_context - outputTokens);
+        const totalCost = (outputCost * outputTokens) + (inputCost * inputTokens);
+        if (!isNaN(totalCost)) {
+            cost = '$' + totalCost.toFixed(4);
+        }
+    }
+
+    $('#electronhub_max_prompt_cost').text(cost);
+}
+
+
+function getChutesModelTemplate(option) {
+    const model = model_list.find(x => x.id === option?.element?.value);
+
+    if (!option.id || !model) {
+        return option.text;
+    }
+
+    const inputPrice = model.pricing?.input;
+    const outputPrice = model.pricing?.output;
+
+    let price = 'Unknown';
+    if (inputPrice !== undefined && outputPrice !== undefined) {
+        // Check if both prices are 0 (free model)
+        if (inputPrice === 0 && outputPrice === 0) {
+            price = 'Free';
+        } else {
+            price = `$${inputPrice}/$${outputPrice} in/out Mtoken`;
+        }
+    }
+
+    const contextLength = model.context_length || model.max_model_len || 'Unknown';
+    const visionIcon = model.input_modalities?.includes('image') ? '<i class="fa-solid fa-eye fa-sm" title="This model supports vision"></i>' : '';
+    const reasoningIcon = model.supported_features?.includes('reasoning') ? '<i class="fa-solid fa-brain fa-sm" title="This model supports reasoning"></i>' : '';
+    const toolCallsIcon = model.supported_features?.includes('structured_outputs') ? '<i class="fa-solid fa-wrench fa-sm" title="This model supports function tools"></i>' : '';
+
+    const iconsContainer = document.createElement('span');
+    iconsContainer.insertAdjacentHTML('beforeend', visionIcon);
+    iconsContainer.insertAdjacentHTML('beforeend', reasoningIcon);
+    iconsContainer.insertAdjacentHTML('beforeend', toolCallsIcon);
+
+    const capabilities = (iconsContainer.children.length) ? ` | ${iconsContainer.innerHTML}` : '';
+
+    return $((`
+        <div class="flex-container alignItemsBaseline" title="${DOMPurify.sanitize(model.id)}">
+            <strong>${DOMPurify.sanitize(model.id)}</strong> | ${contextLength} ctx | <small>${price}</small>${capabilities}
+        </div>
+    `));
+}
+
+
+function calculateChutesCost() {
+    if (oai_settings.chat_completion_source !== chat_completion_sources.CHUTES) {
+        return;
+    }
+
+    let cost = 'Unknown';
+    const model = model_list.find(x => x.id === oai_settings.chutes_model);
+
+    if (model?.pricing) {
+        const outputPrice = model.pricing?.output;
+        const inputPrice = model.pricing?.input;
+
+        if (outputPrice !== undefined && inputPrice !== undefined) {
+            const outputCost = Number(outputPrice / 1000000);
+            const inputCost = Number(inputPrice / 1000000);
+            const outputTokens = oai_settings.openai_max_tokens;
+            const inputTokens = (oai_settings.openai_max_context - outputTokens);
+            const totalCost = (outputCost * outputTokens) + (inputCost * inputTokens);
+            if (!isNaN(totalCost)) {
+                cost = '$' + totalCost.toFixed(4);
+            }
+        }
+    }
+
+    $('#chutes_max_prompt_cost').text(cost);
+}
+
+
+function getNanoGptModelTemplate(option) {
+    const model = model_list.find(x => x.id === option?.element?.value);
+
+    if (!option.id || !model) {
+        return option.text;
+    }
+
+    const inputPrice = model.pricing?.prompt;
+    const outputPrice = model.pricing?.completion;
+    let price = 'Unknown';
+
+    if (inputPrice !== undefined && outputPrice !== undefined) {
+        if (inputPrice === 0 && outputPrice === 0) {
+            price = 'Free';
+        } else {
+            price = `$${Math.round(inputPrice * 100) / 100}/$${Math.round(outputPrice * 100) / 100} in/out Mtoken`;
+        }
+    }
+
+    const visionIcon = model.capabilities?.vision ? '<i class="fa-solid fa-eye fa-sm" title="This model supports vision"></i>' : '';
+    const reasoningIcon = model.capabilities?.reasoning ? '<i class="fa-solid fa-brain fa-sm" title="This model supports reasoning"></i>' : '';
+    const toolCallsIcon = model.capabilities?.tool_calling ? '<i class="fa-solid fa-wrench fa-sm" title="This model supports tool calling"></i>' : '';
+
+    let subHtml = '';
+    const sub = model.subscription;
+
+    if (sub) {
+        if (sub.included) {
+            let titleText = 'Included in subscription';
+            let multiplierText = '';
+
+            if (sub.inputTokenMultiplier && sub.inputTokenMultiplier !== 1) {
+                multiplierText = ` (${sub.inputTokenMultiplier}x)`;
+                titleText += ` - Input Multiplier: ${sub.inputTokenMultiplier}x`;
+            }
+            subHtml = ` <small title="${titleText}"><i class="fa-solid fa-crown fa-sm"></i> Sub${multiplierText}</small>`;
+        } else if (sub.note) {
+            const safeNote = DOMPurify.sanitize(sub.note);
+            subHtml = ` <small title="${safeNote}"><i class="fa-solid fa-circle-info fa-sm"></i> Not in Sub</small>`;
+        }
+    }
+
+    const iconsContainer = document.createElement('span');
+    iconsContainer.insertAdjacentHTML('beforeend', visionIcon);
+    iconsContainer.insertAdjacentHTML('beforeend', reasoningIcon);
+    iconsContainer.insertAdjacentHTML('beforeend', toolCallsIcon);
+    iconsContainer.insertAdjacentHTML('beforeend', subHtml);
+
+    const capabilities = (iconsContainer.children.length) ? ` | ${iconsContainer.innerHTML}` : '';
+
+    const contextLength = model.context_length || 'Unknown';
+    const modelName = model.name || model.id;
+
+    return $((`
+        <div class="flex-container alignItemsBaseline" title="${DOMPurify.sanitize(model.id)}">
+            <strong>${DOMPurify.sanitize(modelName)}</strong> | ${contextLength} ctx | <small>${price}</small>${capabilities}
+        </div>
+    `));
+}
+
+
+function getAimlapiModelTemplate(option) {
+    const model = model_list.find(x => x.id === option?.element?.value);
+
+    if (!option.id || !model) {
+        return option.text;
+    }
+
+    const vendor = model.id.split('/')[0];
+
+    return $((`
+        <div class="flex-container flexFlowColumn" title="${DOMPurify.sanitize(model.id)}">
+            <div><strong>${DOMPurify.sanitize(model.info?.name || model.name || model.id)}</strong> | ${vendor}</div>
+        </div>
+    `));
 }
