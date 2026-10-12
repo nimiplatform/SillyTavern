@@ -7,9 +7,9 @@ source-development environment. The App always loads its own packaged native
 carrier. Source Runtime peer identity and installed-App/session admission remain
 verified; no workspace carrier replacement or trust-check bypass is used.
 
-Catalog AI acceptance for this new artifact is pending publication and admission;
-earlier development and installed-artifact results below retain their stated
-versions and limitations.
+Catalog AI acceptance passed on macOS arm64 using the actual [1.19.5 Release](https://github.com/nimiplatform/SillyTavern/releases/tag/v1.19.5) admitted by [Registry PR #74](https://github.com/nimiplatform/nimi-app-registry/pull/74), downloaded and launched through source Nimi Home. Generated a real character-chat reply with Deepseek v4 flash, synthesized narration with qwen3-tts-flash, played and exported the 15.28-second WAV, then relaunched through Home and reopened the saved chat with its audio attachments.
+
+Local screenshots and exported results are in `.nimi/local/released-dependencies-20261012/`. Windows interactive acceptance and other unrun AI modalities remain **NOT-VERIFIED**. These results supersede the earlier Catalog limitation; historical results below retain their stated versions.
 
 # SillyTavern on Nimi
 
