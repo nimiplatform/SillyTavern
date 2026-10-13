@@ -1,6 +1,6 @@
-# 1.19.6 — Windows candidate (unreleased)
+# 1.19.6 — Windows support and publisher declaration
 
-Adds the Windows production target, a Windows-safe renderer build invocation and publisher metadata required by the PE packager. Public SDK 0.21.0, Kit/native 0.19.3, App Tools 0.12.2 and Nimi Coding 0.6.5 are frozen in the lock. The original character/chat UI and sampling controls are retained. A real Chinese Nimi chat survived reload on Windows. New public Registry admission still requires the publisher's safety declaration; installed acceptance remains NOT-VERIFIED.
+Adds the Windows production target, a Windows-safe renderer build invocation and publisher metadata required by the PE packager. Public SDK 0.21.0, Kit/native 0.19.3, App Tools 0.12.2 and Nimi Coding 0.6.5 are frozen in the lock. The original character/chat UI and sampling controls are retained. A real Chinese Nimi chat survived reload on Windows. The publisher declaration records the confirmed adult audience, mature content, exportable media and existing user-permitted tools that can automatically publish text. This declaration adds no permissions or external publication. Installed acceptance remains a separate delivery step.
 
 # Nimi release 1.19.5 — Source Runtime support for Catalog Apps
 
