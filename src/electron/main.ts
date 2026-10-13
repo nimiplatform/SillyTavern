@@ -142,7 +142,8 @@ function readDevelopmentRendererUrl(): string {
 async function startBusinessServer(): Promise<void> {
   // Fixed business process, with no Host launch/credential/Runtime environment.
   const env: Record<string, string> = {};
-  for (const key of ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PATH', 'LANG', 'LC_ALL']) {
+  // Electron utility-process networking needs SystemRoot on Windows.
+  for (const key of ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'SystemRoot', 'PATH', 'LANG', 'LC_ALL']) {
     if (process.env[key]) env[key] = process.env[key]!;
   }
   env.ST_NIMI_PACKAGED = '1';

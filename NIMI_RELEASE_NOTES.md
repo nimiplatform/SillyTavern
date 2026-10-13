@@ -1,3 +1,11 @@
+# 1.19.7 — Windows installed server startup
+
+Forwards Windows SystemRoot to the App-owned Electron utility process without
+inheriting Host credentials. The installed 1.19.6 server exited with Winsock
+10108 / listen UNKNOWN before creating a window. The same packaged server in
+an isolated business directory reached its real ready event after adding this
+OS variable. Installed acceptance of the rebuilt package remains pending.
+
 # 1.19.6 — Windows support and publisher declaration
 
 Adds the Windows production target, a Windows-safe renderer build invocation and publisher metadata required by the PE packager. Public SDK 0.21.0, Kit/native 0.19.3, App Tools 0.12.2 and Nimi Coding 0.6.5 are frozen in the lock. The original character/chat UI and sampling controls are retained. A real Chinese Nimi chat survived reload on Windows. The publisher declaration records the confirmed adult audience, mature content, exportable media and existing user-permitted tools that can automatically publish text. This declaration adds no permissions or external publication. Installed acceptance remains a separate delivery step.

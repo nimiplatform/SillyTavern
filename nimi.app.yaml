@@ -1,6 +1,6 @@
 app_id: org.nimiplatform.sillytavern
 display_name: SillyTavern
-version: 1.19.6
+version: 1.19.7
 profile: standalone
 manifest_role: submitted-input
 app_access:

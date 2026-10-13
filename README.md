@@ -1,6 +1,16 @@
-## Windows candidate 1.19.6 — 2026-10-13
+## Windows candidate 1.19.7 — 2026-10-13
 
-Unreleased adaptation with SDK 0.21.0, Kit/native 0.19.3, App Tools 0.12.2 and Nimi Coding 0.6.5. The 439-test App suite passes. Windows packaging has an explicit target, portable CSS invocation and required author metadata. The supervised App against Nimi 0.2.2 generated a real two-sentence Chinese librarian reply through qwen3.8-flash; reload preserved the chat. Windows speech, images, retrieval and external tools remain NOT-VERIFIED. New public admission needs the publisher's safety declaration; candidate installation remains NOT-VERIFIED. Earlier macOS evidence keeps its stated release and scope.
+Uses SDK 0.21.0, Kit/native 0.19.3, App Tools 0.12.2 and Nimi Coding 0.6.5. Windows packaging has an explicit target, portable CSS invocation and required author metadata. The 439-test App suite passed for 1.19.6, and supervised Chinese character chat survived reload against Nimi 0.2.2. The confirmed adult-audience publisher declaration is included; current Registry policy does not make that declaration a universal new-admission requirement.
+
+The immutable 1.19.6 release passed both builds, but its actual Windows local
+installation on Nimi 0.2.3 exited before opening a window. Its Electron business
+process omitted SystemRoot and failed Windows socket initialization. The same
+installed server reproduced Winsock 10108 / listen UNKNOWN in an isolated App
+data directory, then reached its real ready event when that OS variable was
+forwarded. Version 1.19.7 fixes this bounded environment; Host credentials remain
+excluded. Rebuilt installed acceptance is pending. Windows speech, images,
+retrieval and external tools remain NOT-VERIFIED. Earlier macOS evidence keeps
+its stated release and scope.
 
 ## Catalog App support for source Runtime — 1.19.5
 
