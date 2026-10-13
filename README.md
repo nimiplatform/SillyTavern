@@ -29,6 +29,14 @@ saves these bytes without the `finishCompletedDashScopeWAV` finalization already
 used by other Dashscope branches. This cross-platform artifact issue is recorded
 separately from the repaired Windows App startup.
 
+The Runtime source repair [9e5243393](https://github.com/nimiplatform/nimi/commit/9e52433930180433a48085a662b8518f97ac28d8)
+now finalizes this known marker only after native Qwen `finish_reason=stop` and
+a complete final-URL download. It preserves sample bytes and rejects unknown
+length markers, incomplete frames and unconfirmed completion. The full
+`nimillm` package tests and canonical authority checks pass locally. The fix is
+not in installed Nimi 0.2.3: a new synthesis/export after Runtime delivery is
+still NOT-VERIFIED, and previously saved audio is retained unchanged.
+
 After normal close and relaunch from Home, the four-message chat and its
 6.8-second audio attachment remained available. The immutable
 [1.19.7 release](https://github.com/nimiplatform/SillyTavern/releases/tag/v1.19.7)
