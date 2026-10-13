@@ -33,9 +33,18 @@ The Runtime source repair [9e5243393](https://github.com/nimiplatform/nimi/commi
 now finalizes this known marker only after native Qwen `finish_reason=stop` and
 a complete final-URL download. It preserves sample bytes and rejects unknown
 length markers, incomplete frames and unconfirmed completion. The full
-`nimillm` package tests and canonical authority checks pass locally. The fix is
-not in installed Nimi 0.2.3: a new synthesis/export after Runtime delivery is
-still NOT-VERIFIED, and previously saved audio is retained unchanged.
+`nimillm` package tests and canonical authority checks pass locally. On October
+14, the signed-inventory local Windows Nimi 0.2.4-rc.1 candidate (source
+5936ee1d2cf15267fe6e487934b87ecb41cf263b) was installed over 0.2.3. Home
+launched the installed SillyTavern 1.19.7 and retained the same chat. A new
+manual narration of the first librarian reply completed and played through
+16.48 seconds. Native export saved `.nimi/local/installed-bluebird743-rc1.wav`
+(791,084 bytes, 24 kHz mono PCM16; SHA-256
+06f581c5d222505dd7c21d0812d723a265569387a8d4159dd5d208f3f1394e44).
+RIFF/data lengths are exactly 791076/791040. Full FFmpeg decoding with
+`-xerror` exited 0 without a corrupt-packet warning. This verifies the repair
+on the installed local candidate, not a formal Nimi release; the old audio
+remains unchanged.
 
 After normal close and relaunch from Home, the four-message chat and its
 6.8-second audio attachment remained available. The immutable
