@@ -18,13 +18,18 @@ storage_policy:
   kind: app-owned-os-storage
   os_storage_disclosure:
     - path_pattern: ~/Library/Application Support/SillyTavern-Nimi
-      purpose: Character cards, Persona, chats, world books, settings, media, backups and retrieval indexes. Shared between development and local installation; independent of Nimi accounts.
-      expected_size_band: User-controlled; megabytes for text, potentially multiple gigabytes for media and indexes.
+      purpose: Character cards, Persona, chats, world books, settings, media, backups
+        and retrieval indexes. Shared between development and local
+        installation; independent of Nimi accounts.
+      expected_size_band: User-controlled; megabytes for text, potentially multiple
+        gigabytes for media and indexes.
     - path_pattern: "%APPDATA%/SillyTavern-Nimi"
-      purpose: Character cards, Persona, chats, world books, settings, media, backups and retrieval indexes on Windows; independent of Nimi accounts.
+      purpose: Character cards, Persona, chats, world books, settings, media, backups
+        and retrieval indexes on Windows; independent of Nimi accounts.
       expected_size_band: User-controlled; megabytes to multiple gigabytes.
 metadata:
-  summary: Character chats, Persona, world books, tools, retrieval and media with Nimi AI.
+  summary: Character chats, Persona, world books, tools, retrieval and media with
+    Nimi AI.
   icon: public/img/apple-icon-512x512.png
   readme: README.md
   release_notes: NIMI_RELEASE_NOTES.md
@@ -33,3 +38,42 @@ local_development:
   electron:
     renderer_origin: http://127.0.0.1:1476
     host_source_directory: src/electron
+safety_profile:
+  intended_audience: adult
+  content_descriptors:
+    - sexual-content
+    - violence
+    - strong-language
+    - unmoderated-shared-content
+  ai:
+    direct_interaction: true
+    interaction_notice: absent
+    risk_features: []
+    subject_notice: not-applicable
+    outputs:
+      - modality: text
+        exposure: publishable
+        publication_control: automatic
+        in_product_notice: absent
+        export_visible_marking: absent
+        machine_readable_marking: absent
+      - modality: image
+        exposure: exportable
+        publication_control: not-applicable
+        in_product_notice: absent
+        export_visible_marking: absent
+        machine_readable_marking: absent
+      - modality: audio
+        exposure: exportable
+        publication_control: not-applicable
+        in_product_notice: absent
+        export_visible_marking: absent
+        machine_readable_marking: absent
+  data_practices:
+    publisher_direct_external_network: true
+    telemetry: []
+    third_party_account: optional
+    user_content_sharing: public
+    commercial_features: []
+    sensitive_data_categories: []
+  high_impact_decision_uses: []
