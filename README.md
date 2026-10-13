@@ -8,9 +8,35 @@ process omitted SystemRoot and failed Windows socket initialization. The same
 installed server reproduced Winsock 10108 / listen UNKNOWN in an isolated App
 data directory, then reached its real ready event when that OS variable was
 forwarded. Version 1.19.7 fixes this bounded environment; Host credentials remain
-excluded. Rebuilt installed acceptance is pending. Windows speech, images,
-retrieval and external tools remain NOT-VERIFIED. Earlier macOS evidence keeps
-its stated release and scope.
+excluded. Production check, 439 tests, local Windows build/pack and both formal
+release targets passed.
+
+Home on the installed Nimi 0.2.3 fixed service updated the Imported source from
+1.19.6 to local production 1.19.7. It opened the real UI and retained the earlier
+Chinese librarian chat. After reselecting the current Dashscope qwen3.8-flash
+resource, a new turn replied: “请为蓝鸟743保留原始阅读记录，不补写未发生或不存在的内容。”
+Manual narration with qwen3-tts-flash, Cherry and WAV completed, played to 6.8
+seconds, and exported through the Windows native save dialog to
+`.nimi/local/installed-bluebird743.wav` (326,444 bytes, 24 kHz mono PCM16).
+
+**Shared Runtime format finding:** the exported SHA-256 matches the artifact
+saved from Nimi; the App did not truncate it. RIFF/data lengths still contain
+the known Dashscope streaming markers 2147483583/2147483547 instead of the
+actual 326436/326400. FFmpeg reads the 6.8 seconds of samples but reports a
+corrupt-packet warning, so strict WAV file conformance is not passed. Runtime
+0.2.3's ordinary TTS branch in `runtime/internal/nimillm/adapter_dashscope.go`
+saves these bytes without the `finishCompletedDashScopeWAV` finalization already
+used by other Dashscope branches. This cross-platform artifact issue is recorded
+separately from the repaired Windows App startup.
+
+After normal close and relaunch from Home, the four-message chat and its
+6.8-second audio attachment remained available. The immutable
+[1.19.7 release](https://github.com/nimiplatform/SillyTavern/releases/tag/v1.19.7)
+is published for both targets; [Registry candidate #99](https://github.com/nimiplatform/nimi-app-registry/pull/99)
+replaces the withdrawn 1.19.6 candidate. Human admission and Windows Catalog
+installation remain pending. Windows images, retrieval, transcription and
+external tools remain NOT-VERIFIED. Earlier macOS evidence keeps its stated
+release and scope.
 
 ## Catalog App support for source Runtime — 1.19.5
 
