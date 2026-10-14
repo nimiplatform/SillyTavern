@@ -1,3 +1,20 @@
+## Windows Catalog acceptance 1.19.7 — 2026-10-14
+
+The user approved the existing adult-audience dual-platform stable candidate;
+[Registry PR #99](https://github.com/nimiplatform/nimi-app-registry/pull/99)
+passed finalization and merged. Installed Nimi 0.2.4 downloaded the complete
+1,003,510,178-byte Windows archive through Catalog, verified and installed it,
+then launched its release-directory Host. The Imported package remains intact.
+The App's existing shared OS data directory retained the four-message librarian
+chat and both saved audio attachments. A new real Nimi model turn replied:
+“请先保留原始阅读记录，再像核对目录一样进行人工复核。” After normal close and
+Home relaunch, the six-message chat restored the new question and reply without
+regeneration. This passes fresh Windows Catalog installation, protected AI use
+and persistence. It does not claim a Catalog N-to-N+1 package update; the
+earlier Imported update below remains separate evidence. Existing media results
+retain their scope. The WAV finalization repair has now shipped in Nimi 0.2.4;
+the original rc.1 real-synthesis evidence below was not rerun as a new synthesis.
+
 ## Windows candidate 1.19.7 — 2026-10-13
 
 Uses SDK 0.21.0, Kit/native 0.19.3, App Tools 0.12.2 and Nimi Coding 0.6.5. Windows packaging has an explicit target, portable CSS invocation and required author metadata. The 439-test App suite passed for 1.19.6, and supervised Chinese character chat survived reload against Nimi 0.2.2. The confirmed adult-audience publisher declaration is included; current Registry policy does not make that declaration a universal new-admission requirement.
@@ -51,7 +68,7 @@ After normal close and relaunch from Home, the four-message chat and its
 [1.19.7 release](https://github.com/nimiplatform/SillyTavern/releases/tag/v1.19.7)
 is published for both targets; [Registry candidate #99](https://github.com/nimiplatform/nimi-app-registry/pull/99)
 replaces the withdrawn 1.19.6 candidate. Human admission and Windows Catalog
-installation remain pending. Windows images, retrieval, transcription and
+installation subsequently passed as recorded above. Windows images, retrieval, transcription and
 external tools remain NOT-VERIFIED. Earlier macOS evidence keeps its stated
 release and scope.
 
