@@ -31,7 +31,6 @@ metadata:
   summary: Character chats, Persona, world books, tools, retrieval and media with
     Nimi AI.
   icon: public/img/apple-icon-512x512.png
-  readme: README.md
   release_notes: NIMI_RELEASE_NOTES.md
   author: SillyTavern contributors
 local_development:
